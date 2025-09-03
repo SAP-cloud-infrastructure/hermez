@@ -66,8 +66,8 @@ github.com/sagikazarmark/locafero v0.7.0 h1:5MqpDsTGNDhY8sGp0Aowyf0qKsPrhewaLSsF
 github.com/sagikazarmark/locafero v0.7.0/go.mod h1:2za3Cg5rMaTMoG/2Ulr9AwtFaIppKXTRYnozin4aB5k=
 github.com/sapcc/go-api-declarations v1.17.4 h1:F4smuE9x1NJ/7NAdytJ1wekeXT3QeRaYu3L/HyWKqqo=
 github.com/sapcc/go-api-declarations v1.17.4/go.mod h1:MWmLjmvjftgyAugNUfIhsDsHIzXH1pn32cWLZpiluKg=
-github.com/sapcc/go-bits v0.0.0-20250828142518-d29beaf1bcca h1:yqW5yQgIs+g9Cd2iq8l8L5L8Yq0+o1JvmOFDhJm36Hk=
-github.com/sapcc/go-bits v0.0.0-20250828142518-d29beaf1bcca/go.mod h1:455iF3CJNh/ZvXuUQPEuG/ZTHlTobVGQtlUEiDGKcbk=
+github.com/sapcc/go-bits v0.0.0-20250902110123-0c7843c14899 h1:taDDdFDAYoWeOtsl2fII1nlwST8vOJ34Rtq8zm85pEU=
+github.com/sapcc/go-bits v0.0.0-20250902110123-0c7843c14899/go.mod h1:455iF3CJNh/ZvXuUQPEuG/ZTHlTobVGQtlUEiDGKcbk=
 github.com/sergi/go-diff v1.4.0 h1:n/SP9D5ad1fORl+llWyN+D6qoUETXNZARKjyY2/KVCw=
 github.com/sergi/go-diff v1.4.0/go.mod h1:A0bzQcvG0E7Rwjx0REVgAGH58e96+X0MeOfepqsbeW4=
 github.com/sourcegraph/conc v0.3.0 h1:OQTbbt6P72L20UqAkXXuLOj79LfEanQ+YQFNpLA9ySo=
