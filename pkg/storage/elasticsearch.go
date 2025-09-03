@@ -7,8 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
+	"net/http"
 	"strings"
 
 	elastic "github.com/olivere/elastic/v7"
@@ -193,13 +193,7 @@ func (es ElasticSearch) GetEvents(filter *EventFilter, tenantID string) ([]*cadf
 
 	searchResult, err := esSearch.Do(context.Background()) // execute
 	if err != nil {
-		if elasticErr, ok := errext.As[*elastic.Error](err); ok {
-			errdetails, _ := json.Marshal(elasticErr.Details) //nolint:errcheck
-			log.Printf("Elastic failed with status %d and error %s.", elasticErr.Status, errdetails)
-		} else {
-			log.Printf("Unknown error occurred: %v", err)
-		}
-		return nil, 0, err
+		return nil, 0, wrapElasticsearchError(err, tenantID, filter.Search)
 	}
 
 	logg.Debug("Got %d hits", searchResult.TotalHits())
@@ -234,7 +228,7 @@ func (es ElasticSearch) GetEvent(eventID, tenantID string) (*cadf.Event, error) 
 	searchResult, err := esSearch.Do(context.Background())
 	if err != nil {
 		logg.Debug("Query failed: %s", err.Error())
-		return nil, err
+		return nil, wrapElasticsearchError(err, tenantID, "")
 	}
 	total := searchResult.TotalHits()
 	logg.Debug("Results: %d", total)
@@ -271,13 +265,7 @@ func (es ElasticSearch) GetAttributes(filter *AttributeFilter, tenantID string) 
 	searchResult, err := esSearch.Do(context.Background())
 
 	if err != nil {
-		if elasticErr, ok := errext.As[*elastic.Error](err); ok {
-			errdetails, _ := json.Marshal(elasticErr.Details) //nolint:errcheck
-			log.Printf("Elastic failed with status %d and error %s.", elasticErr.Status, errdetails)
-		} else {
-			log.Printf("Unknown error occurred: %v", err)
-		}
-		return nil, err
+		return nil, wrapElasticsearchError(err, tenantID, "")
 	}
 
 	if searchResult.Hits == nil {
@@ -344,4 +332,63 @@ func indexName(tenantID string) string {
 		index = fmt.Sprintf("audit-%s*", tenantID)
 	}
 	return index
+}
+
+// wrapElasticsearchError converts Elasticsearch errors into user-friendly StorageError types
+func wrapElasticsearchError(err error, tenantID, searchQuery string) error {
+	if err == nil {
+		return nil
+	}
+
+	// Check if it's an Elasticsearch error with details
+	if elasticErr, ok := errext.As[*elastic.Error](err); ok {
+		// Log the full error details for debugging
+		errdetails, _ := json.Marshal(elasticErr.Details) //nolint:errcheck
+		logg.Error("Elasticsearch error - Status: %d, Details: %s", elasticErr.Status, errdetails)
+
+		// Map Elasticsearch HTTP status codes to our error types
+		switch elasticErr.Status {
+		case http.StatusBadRequest:
+			// Check error message for specific error types
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "parse") || strings.Contains(errMsg, "query_shard_exception") {
+				return NewQuerySyntaxError(err, searchQuery)
+			}
+			if strings.Contains(errMsg, "too_many_buckets") {
+				return NewResourceExhaustedError(err, "memory")
+			}
+			return NewQuerySyntaxError(err, "")
+
+		case http.StatusNotFound:
+			// Index not found
+			if strings.Contains(err.Error(), "index_not_found") {
+				return NewIndexNotFoundError(err, tenantID)
+			}
+			return NewIndexNotFoundError(err, tenantID)
+
+		case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+			return NewTimeoutError(err)
+
+		case http.StatusTooManyRequests:
+			return NewRateLimitError(err)
+
+		case http.StatusServiceUnavailable, http.StatusBadGateway:
+			return NewConnectionError(err)
+
+		default:
+			// For other status codes, return internal error
+			return NewInternalError(err)
+		}
+	}
+
+	// Check for connection errors
+	if strings.Contains(err.Error(), "connection refused") ||
+		strings.Contains(err.Error(), "no such host") ||
+		strings.Contains(err.Error(), "timeout") {
+		return NewConnectionError(err)
+	}
+
+	// Log unknown errors
+	logg.Error("Unknown Elasticsearch error: %v", err)
+	return NewInternalError(err)
 }

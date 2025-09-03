@@ -25,6 +25,14 @@ var (
 		Name: "hermes_storage_errors_count",
 		Help: "Number of technical errors occurred when accessing underlying storage (i.e. Elasticsearch)",
 	})
+	// Detailed storage error metrics
+	storageErrorsCounterVec = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hermes_storage_errors_by_type_count",
+			Help: "Number of storage errors by error type",
+		},
+		[]string{"error_code"},
+	)
 
 	// Metrics for handler instrumentation
 	handlerMetrics    = make(map[string]*handlerMetricSet)
@@ -39,7 +47,7 @@ type handlerMetricSet struct {
 }
 
 func init() {
-	prometheus.MustRegister(authErrorsCounter, authFailuresCounter, storageErrorsCounter)
+	prometheus.MustRegister(authErrorsCounter, authFailuresCounter, storageErrorsCounter, storageErrorsCounterVec)
 }
 
 // InstrumentInflight wraps a handler with inflight request metrics
