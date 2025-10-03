@@ -19,7 +19,6 @@ import (
 	"github.com/sapcc/go-bits/errext"
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/logg"
-	"github.com/sapcc/go-bits/respondwith"
 
 	"github.com/sapcc/hermes/pkg/hermes"
 )
@@ -232,15 +231,13 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	events, total, err := hermes.GetEvents(&filter, indexID, p.storage)
-	if respondwith.ErrorText(res, err) {
-		logg.Error("api.ListEvents: error calling hermes.GetEvents(): %s", err.Error())
-
+	if RespondWithStorageError(res, err) {
 		// Check for UnmarshalTypeError and log it
 		if unmarshalErr, ok := errext.As[*json.UnmarshalTypeError](err); ok {
 			logg.Error("api.ListEvents: JSON unmarshal error: Type=%v, Value=%v, Offset=%v, Struct=%v, Field=%v",
 				unmarshalErr.Type, unmarshalErr.Value, unmarshalErr.Offset, unmarshalErr.Struct, unmarshalErr.Field)
 		}
-		storageErrorsCounter.Add(1)
+		// Storage errors are tracked in RespondWithStorageError via both storageErrorsCounter and storageErrorsCounterVec
 		return
 	}
 
@@ -293,9 +290,8 @@ func (p *v1Provider) GetEventDetails(res http.ResponseWriter, req *http.Request)
 
 	event, err := hermes.GetEvent(eventID, indexID, p.storage)
 
-	if respondwith.ErrorText(res, err) {
-		logg.Error("error getting events from Storage: %s", err)
-		storageErrorsCounter.Add(1)
+	if RespondWithStorageError(res, err) {
+		// Storage errors are tracked in RespondWithStorageError via both storageErrorsCounter and storageErrorsCounterVec
 		return
 	}
 	if event == nil {
@@ -343,9 +339,8 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 
 	attribute, err := hermes.GetAttributes(&filter, indexID, p.storage)
 
-	if respondwith.ErrorText(res, err) {
-		logg.Error("could not get attributes from Storage: %s", err)
-		storageErrorsCounter.Add(1)
+	if RespondWithStorageError(res, err) {
+		// Storage errors are tracked in RespondWithStorageError via both storageErrorsCounter and storageErrorsCounterVec
 		return
 	}
 	if attribute == nil {
