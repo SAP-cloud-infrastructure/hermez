@@ -21,7 +21,6 @@ golangciLint:
 githubWorkflow:
   ci:
     enabled: true
-    coveralls: true
     ignorePaths:
       - "**.md" # all Markdown files
   license:
@@ -37,5 +36,6 @@ reuse:
   annotations:
     - paths:
       - .github/assets/*.png
+      - build/*.out
       SPDX-FileCopyrightText: SAP SE or an SAP affiliate company
       SPDX-License-Identifier: Apache-2.0
