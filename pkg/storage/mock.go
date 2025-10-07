@@ -4,6 +4,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/sapcc/go-api-declarations/cadf"
@@ -13,7 +14,7 @@ import (
 type Mock struct{}
 
 // GetEvents mock with static data
-func (m Mock) GetEvents(filter *EventFilter, tenantID string) ([]*cadf.Event, int, error) {
+func (m Mock) GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error) {
 	var detailedEvents eventListWithTotal
 	err := json.Unmarshal(mockEvents, &detailedEvents)
 	if err != nil {
@@ -30,7 +31,7 @@ func (m Mock) GetEvents(filter *EventFilter, tenantID string) ([]*cadf.Event, in
 }
 
 // GetEvent Mock with static data
-func (m Mock) GetEvent(eventID, tenantID string) (*cadf.Event, error) {
+func (m Mock) GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error) {
 	var parsedEvent cadf.Event
 	err := json.Unmarshal(mockEvent, &parsedEvent)
 	return &parsedEvent, err
@@ -42,7 +43,7 @@ func (m Mock) MaxLimit() uint {
 }
 
 // GetAttributes Mock
-func (m Mock) GetAttributes(filter *AttributeFilter, tenantID string) ([]string, error) {
+func (m Mock) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
 	var parsedAttribute []string
 	err := json.Unmarshal(mockAttributes, &parsedAttribute)
 	return parsedAttribute, err

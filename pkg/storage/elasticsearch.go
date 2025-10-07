@@ -109,7 +109,7 @@ func FilterQuery(filter, filtername string, query *elastic.BoolQuery) *elastic.B
 }
 
 // GetEvents grabs events for a given tenantID with filtering.
-func (es ElasticSearch) GetEvents(filter *EventFilter, tenantID string) ([]*cadf.Event, int, error) {
+func (es ElasticSearch) GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error) {
 	index := indexName(tenantID)
 	logg.Debug("Looking for events in index %s", index)
 
@@ -191,7 +191,7 @@ func (es ElasticSearch) GetEvents(filter *EventFilter, tenantID string) ([]*cadf
 		Sort(esFieldMapping["time"], false).
 		From(offset).Size(limit)
 
-	searchResult, err := esSearch.Do(context.Background()) // execute
+	searchResult, err := esSearch.Do(ctx) // execute
 	if err != nil {
 		if elasticErr, ok := errext.As[*elastic.Error](err); ok {
 			errdetails, _ := json.Marshal(elasticErr.Details) //nolint:errcheck
@@ -220,7 +220,7 @@ func (es ElasticSearch) GetEvents(filter *EventFilter, tenantID string) ([]*cadf
 }
 
 // GetEvent Returns EventDetail for a single event.
-func (es ElasticSearch) GetEvent(eventID, tenantID string) (*cadf.Event, error) {
+func (es ElasticSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error) {
 	index := indexName(tenantID)
 	logg.Debug("Looking for event %s in index %s", eventID, index)
 
@@ -231,7 +231,7 @@ func (es ElasticSearch) GetEvent(eventID, tenantID string) (*cadf.Event, error) 
 		Index(index).
 		Query(query)
 
-	searchResult, err := esSearch.Do(context.Background())
+	searchResult, err := esSearch.Do(ctx)
 	if err != nil {
 		logg.Debug("Query failed: %s", err.Error())
 		return nil, err
@@ -250,7 +250,7 @@ func (es ElasticSearch) GetEvent(eventID, tenantID string) (*cadf.Event, error) 
 
 // GetAttributes Return all unique attributes available for filtering
 // Possible queries, event_type, dns, identity, etc..
-func (es ElasticSearch) GetAttributes(filter *AttributeFilter, tenantID string) ([]string, error) {
+func (es ElasticSearch) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
 	index := indexName(tenantID)
 
 	logg.Debug("Looking for unique attributes for %s in index %s", filter.QueryName, index)
@@ -268,7 +268,7 @@ func (es ElasticSearch) GetAttributes(filter *AttributeFilter, tenantID string) 
 	queryAgg := elastic.NewTermsAggregation().Size(limit).Field(esName)
 
 	esSearch := es.client().Search().Index(index).Size(limit).Aggregation("attributes", queryAgg)
-	searchResult, err := esSearch.Do(context.Background())
+	searchResult, err := esSearch.Do(ctx)
 
 	if err != nil {
 		if elasticErr, ok := errext.As[*elastic.Error](err); ok {
