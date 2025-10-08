@@ -231,7 +231,7 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		return
 	}
-	events, total, err := hermes.GetEvents(&filter, indexID, p.storage)
+	events, total, err := hermes.GetEvents(req.Context(), &filter, indexID, p.storage)
 	if respondwith.ErrorText(res, err) {
 		logg.Error("api.ListEvents: error calling hermes.GetEvents(): %s", err.Error())
 
@@ -291,7 +291,7 @@ func (p *v1Provider) GetEventDetails(res http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	event, err := hermes.GetEvent(eventID, indexID, p.storage)
+	event, err := hermes.GetEvent(req.Context(), eventID, indexID, p.storage)
 
 	if respondwith.ErrorText(res, err) {
 		logg.Error("error getting events from Storage: %s", err)
@@ -341,7 +341,7 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	attribute, err := hermes.GetAttributes(&filter, indexID, p.storage)
+	attribute, err := hermes.GetAttributes(req.Context(), &filter, indexID, p.storage)
 
 	if respondwith.ErrorText(res, err) {
 		logg.Error("could not get attributes from Storage: %s", err)

@@ -4,6 +4,8 @@
 package storage
 
 import (
+	"context"
+
 	"github.com/sapcc/go-api-declarations/cadf"
 )
 
@@ -48,9 +50,9 @@ type Response struct {
 // Because it is an interface, the real implementation can be mocked away in unit tests.
 type Storage interface {
 	/********** requests to ElasticSearch **********/
-	GetEvents(filter *EventFilter, tenantID string) ([]*cadf.Event, int, error)
-	GetEvent(eventID, tenantID string) (*cadf.Event, error)
-	GetAttributes(filter *AttributeFilter, tenantID string) ([]string, error)
+	GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error)
+	GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error)
+	GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error)
 	MaxLimit() uint
 }
 

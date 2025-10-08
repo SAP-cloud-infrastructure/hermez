@@ -4,6 +4,7 @@
 package storage
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sapcc/go-api-declarations/cadf"
@@ -12,7 +13,7 @@ import (
 
 func Test_MockStorage_EventDetail(t *testing.T) {
 	// both params are ignored
-	eventDetail, err := Mock{}.GetEvent("d5eed458-6666-58ec-ad06-8d3cf6bafca1", "b3b70c8271a845709f9a03030e705da7")
+	eventDetail, err := Mock{}.GetEvent(context.Background(), "d5eed458-6666-58ec-ad06-8d3cf6bafca1", "b3b70c8271a845709f9a03030e705da7")
 	assert.Nil(t, err)
 	tt := []struct {
 		name     string
@@ -39,7 +40,7 @@ func Test_MockStorage_EventDetail(t *testing.T) {
 }
 
 func Test_MockStorage_Events(t *testing.T) {
-	eventsList, total, err := Mock{}.GetEvents(&EventFilter{}, "b3b70c8271a845709f9a03030e705da7")
+	eventsList, total, err := Mock{}.GetEvents(context.Background(), &EventFilter{}, "b3b70c8271a845709f9a03030e705da7")
 
 	assert.Nil(t, err)
 	assert.Equal(t, total, 4)
@@ -50,7 +51,7 @@ func Test_MockStorage_Events(t *testing.T) {
 }
 
 func Test_MockStorage__Attributes(t *testing.T) {
-	attributesList, err := Mock{}.GetAttributes(&AttributeFilter{}, "b3b70c8271a845709f9a03030e705da7")
+	attributesList, err := Mock{}.GetAttributes(context.Background(), &AttributeFilter{}, "b3b70c8271a845709f9a03030e705da7")
 
 	assert.Nil(t, err)
 	assert.Equal(t, len(attributesList), 6)
