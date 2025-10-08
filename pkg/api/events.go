@@ -230,7 +230,8 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		return
 	}
-	events, total, err := hermes.GetEvents(&filter, indexID, p.storage)
+
+	events, total, err := hermes.GetEvents(eq.Context(), &filter, indexID, p.storage)
 	if RespondWithStorageError(res, err) {
 		// Check for UnmarshalTypeError and log it
 		if unmarshalErr, ok := errext.As[*json.UnmarshalTypeError](err); ok {
@@ -288,7 +289,7 @@ func (p *v1Provider) GetEventDetails(res http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	event, err := hermes.GetEvent(eventID, indexID, p.storage)
+	event, err := hermes.GetEvent(req.Context(), eventID, indexID, p.storage)
 
 	if RespondWithStorageError(res, err) {
 		// Storage errors are tracked in RespondWithStorageError via both storageErrorsCounter and storageErrorsCounterVec
@@ -337,7 +338,7 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	attribute, err := hermes.GetAttributes(&filter, indexID, p.storage)
+	attribute, err := hermes.GetAttributes(req.Context(), &filter, indexID, p.storage)
 
 	if RespondWithStorageError(res, err) {
 		// Storage errors are tracked in RespondWithStorageError via both storageErrorsCounter and storageErrorsCounterVec

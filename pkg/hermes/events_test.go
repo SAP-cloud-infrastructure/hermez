@@ -4,6 +4,7 @@
 package hermes
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +15,7 @@ import (
 
 func Test_GetEvent(t *testing.T) {
 	eventID := "7be6c4ff-b761-5f1f-b234-f5d41616c2cd"
-	event, err := GetEvent(eventID, "", storage.Mock{})
+	event, err := GetEvent(context.Background(), eventID, "", storage.Mock{})
 	require.Nil(t, err)
 	require.NotNil(t, event)
 	assert.Equal(t, "7be6c4ff-b761-5f1f-b234-f5d41616c2cd", event.ID)
@@ -24,7 +25,7 @@ func Test_GetEvent(t *testing.T) {
 }
 
 func Test_GetEvents(t *testing.T) {
-	events, total, err := GetEvents(&EventFilter{}, "", storage.Mock{})
+	events, total, err := GetEvents(context.Background(), &EventFilter{}, "", storage.Mock{})
 	require.Nil(t, err)
 	require.NotNil(t, events)
 	assert.Equal(t, len(events), 4)
@@ -42,7 +43,7 @@ func Test_GetEvents(t *testing.T) {
 }
 
 func Test_GetAttributes(t *testing.T) {
-	attributes, err := GetAttributes(&AttributeFilter{}, "", storage.Mock{})
+	attributes, err := GetAttributes(context.Background(), &AttributeFilter{}, "", storage.Mock{})
 	require.Nil(t, err)
 	require.NotNil(t, attributes)
 	assert.Equal(t, len(attributes), 6)

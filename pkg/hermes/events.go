@@ -4,6 +4,7 @@
 package hermes
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/jinzhu/copier"
@@ -68,14 +69,14 @@ type AttributeFilter struct {
 }
 
 // GetEvents returns a list of matching events (with filtering)
-func GetEvents(filter *EventFilter, tenantID string, eventStore storage.Storage) ([]*ListEvent, int, error) {
+func GetEvents(ctx context.Context, filter *EventFilter, tenantID string, eventStore storage.Storage) ([]*ListEvent, int, error) {
 	storageFilter, err := storageFilter(filter, eventStore)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	logg.Debug("hermes.GetEvents: tenant id is %s", tenantID)
-	eventDetails, total, err := eventStore.GetEvents(storageFilter, tenantID)
+	eventDetails, total, err := eventStore.GetEvents(ctx, storageFilter, tenantID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -162,20 +163,20 @@ func eventsList(eventDetails []*cadf.Event, details bool) ([]*ListEvent, error) 
 }
 
 // GetEvent returns the CADF detail for event with the specified ID
-func GetEvent(eventID, tenantID string, eventStore storage.Storage) (*cadf.Event, error) {
-	event, err := eventStore.GetEvent(eventID, tenantID)
+func GetEvent(ctx context.Context, eventID, tenantID string, eventStore storage.Storage) (*cadf.Event, error) {
+	event, err := eventStore.GetEvent(ctx, eventID, tenantID)
 
 	return event, err
 }
 
 // GetAttributes No Logic here, but handles mock implementation for eventStore
-func GetAttributes(filter *AttributeFilter, tenantID string, eventStore storage.Storage) ([]string, error) {
+func GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string, eventStore storage.Storage) ([]string, error) {
 	attributeFilter := storage.AttributeFilter{
 		QueryName: filter.QueryName,
 		MaxDepth:  filter.MaxDepth,
 		Limit:     filter.Limit,
 	}
-	attribute, err := eventStore.GetAttributes(&attributeFilter, tenantID)
+	attribute, err := eventStore.GetAttributes(ctx, &attributeFilter, tenantID)
 
 	return attribute, err
 }
