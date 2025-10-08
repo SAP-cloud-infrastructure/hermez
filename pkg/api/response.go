@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/sapcc/go-bits/errext"
 	"github.com/sapcc/go-bits/logg"
 	"github.com/sapcc/go-bits/respondwith"
+
+	"github.com/sapcc/hermes/pkg/storage"
 )
 
 // ReturnESJSON is a custom response helper that preserves Elasticsearch URL formatting.
@@ -50,4 +53,29 @@ func getProtocol(req *http.Request) string {
 		protocol = "https"
 	}
 	return protocol
+}
+
+// RespondWithStorageError checks if the error is a StorageError and responds appropriately.
+// It returns true if the error was handled (response was written), false otherwise.
+func RespondWithStorageError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check if it's a StorageError
+	if storageErr, ok := errext.As[*storage.StorageError](err); ok {
+		// Log the full error with cause for debugging
+		logg.Error("Storage error occurred: %s", storageErr.Error())
+
+		// Track storage errors in both metrics for backward compatibility
+		storageErrorsCounter.Inc()                                             // Legacy metric: total count
+		storageErrorsCounterVec.WithLabelValues(string(storageErr.Code)).Inc() // New metric: by error type
+
+		// Return the user-friendly error response
+		ReturnESJSON(w, storageErr.HTTPStatus, storageErr.ToAPIResponse())
+		return true
+	}
+
+	// Fall back to standard error handling
+	return respondwith.ErrorText(w, err)
 }
