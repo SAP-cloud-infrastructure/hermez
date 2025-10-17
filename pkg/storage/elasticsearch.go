@@ -6,9 +6,9 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"math"
+	"slices"
 	"strings"
 
 	elastic "github.com/olivere/elastic/v7"
@@ -73,27 +73,9 @@ func (es *ElasticSearch) init() {
 	}
 }
 
-// Mapping for attributes based on return values to API
-// .raw because it's tokenizing the ID in searches, and won't match. .raw is not analyzed, and not tokenized.
-// For more on Elasticsearch tokenization
-// https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis-tokenizers.html
-// The .keyword field is created on string fields with a different schema allowing aggregation and exact match searches.
-// We're aggregating in the Attributes call, and doing exact match searches in GetEvents.
-
-// New Schema that changes all pieces to keywords.
-var esFieldMapping = map[string]string{
-	"time":           "eventTime",
-	"action":         "action.keyword",
-	"outcome":        "outcome.keyword",
-	"request_path":   "requestPath.keyword",
-	"observer_id":    "observer.id.keyword",
-	"observer_type":  "observer.typeURI.keyword",
-	"target_id":      "target.id.keyword",
-	"target_type":    "target.typeURI.keyword",
-	"initiator_id":   "initiator.id.keyword",
-	"initiator_type": "initiator.typeURI.keyword",
-	"initiator_name": "initiator.name.keyword",
-}
+// esFieldMapping is an alias to the shared CADFFieldMapping for backward compatibility.
+// The field mapping is defined in util.go to ensure consistency across storage backends.
+var esFieldMapping = CADFFieldMapping
 
 // FilterQuery takes filter requests, and adds their filter to the ElasticSearch Query
 // Handle Filter, Negation of Filter !, and or values separated by ,
@@ -184,9 +166,22 @@ func (es ElasticSearch) GetEvents(ctx context.Context, filter *EventFilter, tena
 		}
 	}
 
-	offset := int(math.Min(float64(filter.Offset), float64(math.MaxInt32)))
-	limit := int(math.Min(float64(filter.Limit), float64(math.MaxInt32)))
-
+	// Explicitly clamp offset and limit to [0, MaxInt32] for offset, [1, MaxInt32] for limit
+	var offset int
+	if filter.Offset > uint(math.MaxInt32) {
+		offset = math.MaxInt32
+	} else {
+		offset = int(filter.Offset)
+	}
+	var limit int
+	switch {
+	case filter.Limit < 1:
+		limit = 10
+	case filter.Limit > uint(math.MaxInt32):
+		limit = math.MaxInt32
+	default:
+		limit = int(filter.Limit)
+	}
 	esSearch = esSearch.
 		Sort(esFieldMapping["time"], false).
 		From(offset).Size(limit)
@@ -264,7 +259,17 @@ func (es ElasticSearch) GetAttributes(ctx context.Context, filter *AttributeFilt
 	}
 	logg.Debug("Mapped Queryname: %s --> %s", filter.QueryName, esName)
 
-	limit := int(math.Min(float64(filter.Limit), float64(math.MaxInt32)))
+	// Safe conversion from potentially untrusted filter.Limit (uint) to int
+	const defaultLimit = 10000 // this matches opensearch default if not specified
+	var limit int
+	switch {
+	case filter.Limit == 0:
+		limit = defaultLimit
+	case filter.Limit > uint(math.MaxInt32):
+		limit = math.MaxInt32
+	default:
+		limit = int(filter.Limit)
+	}
 	queryAgg := elastic.NewTermsAggregation().Size(limit).Field(esName)
 
 	esSearch := es.client().Search().Index(index).Size(limit).Aggregation("attributes", queryAgg)
@@ -299,7 +304,17 @@ func (es ElasticSearch) GetAttributes(ctx context.Context, filter *AttributeFilt
 	}
 	logg.Debug("Number of Buckets: %d", len(termsAggRes.Buckets))
 
-	maxDepth := int(math.Min(float64(filter.MaxDepth), float64(math.MaxInt32)))
+	// Ensure filter.MaxDepth is within safe bounds for int conversion
+	const defaultMaxDepth = 32 // or another sane default
+	var maxDepth int
+	switch {
+	case filter.MaxDepth == 0:
+		maxDepth = defaultMaxDepth
+	case filter.MaxDepth > math.MaxInt32:
+		maxDepth = math.MaxInt32
+	default:
+		maxDepth = int(filter.MaxDepth)
+	}
 
 	var unique []string
 	for _, bucket := range termsAggRes.Buckets {
@@ -307,23 +322,13 @@ func (es ElasticSearch) GetAttributes(ctx context.Context, filter *AttributeFilt
 		attribute := bucket.Key.(string)
 
 		// Hierarchical Depth Handling
-		var att string
-		if filter.MaxDepth != 0 && strings.Contains(attribute, "/") {
-			s := strings.Split(attribute, "/")
-			l := len(s)
-			for i := 0; i < maxDepth && i < l; i++ {
-				if i != 0 {
-					att += "/"
-				}
-				att += s[i]
-			}
-			attribute = att
-		}
+		attribute = TruncateHierarchicalAttribute(attribute, maxDepth)
 
 		unique = append(unique, attribute)
 	}
 
-	unique = RemoveDuplicates(unique)
+	slices.Sort(unique)
+	unique = slices.Compact(unique)
 	return unique, nil
 }
 
@@ -334,14 +339,4 @@ func (es ElasticSearch) MaxLimit() uint {
 		return 0
 	}
 	return uint(maxLimit)
-}
-
-// indexName Generates the index name for a given TenantId. If no tenantID defaults to audit-*
-// Records for audit-* will not be accessible from a given Tenant.
-func indexName(tenantID string) string {
-	index := "audit-*"
-	if tenantID != "" {
-		index = fmt.Sprintf("audit-%s*", tenantID)
-	}
-	return index
 }
