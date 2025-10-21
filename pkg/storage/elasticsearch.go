@@ -322,7 +322,7 @@ func (es ElasticSearch) GetAttributes(ctx context.Context, filter *AttributeFilt
 		attribute := bucket.Key.(string)
 
 		// Hierarchical Depth Handling
-		attribute = TruncateHierarchicalAttribute(attribute, maxDepth)
+		attribute = TruncateSlashPath(attribute, maxDepth)
 
 		unique = append(unique, attribute)
 	}

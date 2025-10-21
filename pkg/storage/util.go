@@ -63,18 +63,18 @@ func indexName(tenantID string) string {
 	return index
 }
 
-// TruncateHierarchicalAttribute truncates slash-separated attributes to maxDepth levels.
+// TruncateSlashPath truncates slash-separated paths to maxDepth levels.
 // This is used for hierarchical attribute values like "service/compute/instance".
-// If maxDepth is 0 or the attribute has no slashes, returns the attribute unchanged.
-// Example: TruncateHierarchicalAttribute("service/compute/instance", 2) returns "service/compute"
-func TruncateHierarchicalAttribute(attribute string, maxDepth int) string {
-	if maxDepth == 0 || !strings.Contains(attribute, "/") {
-		return attribute
+// If maxDepth is 0 or the path has no slashes, returns the path unchanged.
+// Example: TruncateSlashPath("service/compute/instance", 2) returns "service/compute"
+func TruncateSlashPath(path string, maxDepth int) string {
+	if maxDepth == 0 || !strings.Contains(path, "/") {
+		return path
 	}
 
-	parts := strings.Split(attribute, "/")
+	parts := strings.Split(path, "/")
 	if len(parts) <= maxDepth {
-		return attribute
+		return path
 	}
 
 	return strings.Join(parts[:maxDepth], "/")

@@ -365,7 +365,7 @@ func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter,
 		attribute := fmt.Sprintf("%v", bucket.Key)
 
 		// Hierarchical Depth Handling
-		attribute = TruncateHierarchicalAttribute(attribute, maxDepth)
+		attribute = TruncateSlashPath(attribute, maxDepth)
 
 		unique = append(unique, attribute)
 	}

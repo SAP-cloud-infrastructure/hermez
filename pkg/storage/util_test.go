@@ -120,14 +120,14 @@ func TestDeduplicateEvents_HandlesNilInMiddle(t *testing.T) {
 	assert.Equal(t, "event-2", result[1].ID)
 }
 
-func ExampleTruncateHierarchicalAttribute() {
-	// Truncate a hierarchical attribute to 2 levels
-	result := TruncateHierarchicalAttribute("service/compute/instance", 2)
+func ExampleTruncateSlashPath() {
+	// Truncate a slash-separated path to 2 levels
+	result := TruncateSlashPath("service/compute/instance", 2)
 	fmt.Println(result)
 	// Output: service/compute
 }
 
-func TestTruncateHierarchicalAttribute(t *testing.T) {
+func TestTruncateSlashPath(t *testing.T) {
 	tests := []struct {
 		name      string
 		attribute string
@@ -192,7 +192,7 @@ func TestTruncateHierarchicalAttribute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := TruncateHierarchicalAttribute(tt.attribute, tt.maxDepth)
+			result := TruncateSlashPath(tt.attribute, tt.maxDepth)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
