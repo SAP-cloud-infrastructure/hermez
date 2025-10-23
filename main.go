@@ -64,18 +64,31 @@ func setDefaultConfig() {
 	// https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules.html
 	// Increasing max_result_window to 20000, with corresponding changes to Elasticsearch to handle the increase.
 	viper.SetDefault("elasticsearch.max_result_window", "20000")
+	// OpenSearch defaults (same as Elasticsearch for compatibility)
+	viper.SetDefault("opensearch.url", "http://localhost:9200")
+	viper.SetDefault("opensearch.max_result_window", "20000")
 }
 
 func readConfig(configPath *string) {
 	// Enable viper to read Environment Variables
 	viper.AutomaticEnv()
 
-	// Bind the specific environment variable to a viper key
+	// Bind Elasticsearch environment variables
 	err := viper.BindEnv("elasticsearch.username", "HERMES_ES_USERNAME")
 	if err != nil {
 		logg.Fatal(err.Error())
 	}
 	err = viper.BindEnv("elasticsearch.password", "HERMES_ES_PASSWORD")
+	if err != nil {
+		logg.Fatal(err.Error())
+	}
+
+	// Bind OpenSearch environment variables
+	err = viper.BindEnv("opensearch.username", "HERMES_OS_USERNAME")
+	if err != nil {
+		logg.Fatal(err.Error())
+	}
+	err = viper.BindEnv("opensearch.password", "HERMES_OS_PASSWORD")
 	if err != nil {
 		logg.Fatal(err.Error())
 	}
@@ -109,6 +122,7 @@ func configuredKeystoneDriver() gopherpolicy.Validator {
 }
 
 var elasticSearchStorage = storage.ElasticSearch{}
+var openSearchStorage = storage.OpenSearch{}
 var mockStorage = storage.Mock{}
 
 func configuredStorageDriver() storage.Storage {
@@ -116,6 +130,8 @@ func configuredStorageDriver() storage.Storage {
 	switch driverName {
 	case "elasticsearch":
 		return elasticSearchStorage
+	case "opensearch":
+		return openSearchStorage
 	case "mock":
 		return mockStorage
 	default:

@@ -4,50 +4,12 @@
 package storage
 
 import (
-	"reflect"
+	"fmt"
 	"testing"
 
 	"github.com/sapcc/go-api-declarations/cadf"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestRemoveDuplicates(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []string
-		expected []string
-	}{
-		{
-			name:     "No duplicates",
-			input:    []string{"apple", "banana", "cherry"},
-			expected: []string{"apple", "banana", "cherry"},
-		},
-		{
-			name:     "With duplicates",
-			input:    []string{"apple", "banana", "cherry", "apple", "cherry"},
-			expected: []string{"apple", "banana", "cherry"},
-		},
-		{
-			name:     "All duplicates",
-			input:    []string{"apple", "apple", "apple"},
-			expected: []string{"apple"},
-		},
-		{
-			name:     "Single element",
-			input:    []string{"apple"},
-			expected: []string{"apple"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			output := RemoveDuplicates(tt.input)
-			if !reflect.DeepEqual(output, tt.expected) {
-				t.Errorf("got %v, want %v", output, tt.expected)
-			}
-		})
-	}
-}
 
 func TestDeduplicateEvents(t *testing.T) {
 	tests := []struct {
@@ -156,4 +118,82 @@ func TestDeduplicateEvents_HandlesNilInMiddle(t *testing.T) {
 	assert.Len(t, result, 2)
 	assert.Equal(t, "event-1", result[0].ID)
 	assert.Equal(t, "event-2", result[1].ID)
+}
+
+func ExampleTruncateSlashPath() {
+	// Truncate a slash-separated path to 2 levels
+	result := TruncateSlashPath("service/compute/instance", 2)
+	fmt.Println(result)
+	// Output: service/compute
+}
+
+func TestTruncateSlashPath(t *testing.T) {
+	tests := []struct {
+		name      string
+		attribute string
+		maxDepth  int
+		expected  string
+	}{
+		{
+			name:      "no truncation needed - maxDepth 0",
+			attribute: "service/compute/instance",
+			maxDepth:  0,
+			expected:  "service/compute/instance",
+		},
+		{
+			name:      "no truncation needed - no slashes",
+			attribute: "simple-attribute",
+			maxDepth:  2,
+			expected:  "simple-attribute",
+		},
+		{
+			name:      "truncate to 1 level",
+			attribute: "service/compute/instance",
+			maxDepth:  1,
+			expected:  "service",
+		},
+		{
+			name:      "truncate to 2 levels",
+			attribute: "service/compute/instance",
+			maxDepth:  2,
+			expected:  "service/compute",
+		},
+		{
+			name:      "maxDepth equals attribute depth",
+			attribute: "service/compute/instance",
+			maxDepth:  3,
+			expected:  "service/compute/instance",
+		},
+		{
+			name:      "maxDepth exceeds attribute depth",
+			attribute: "service/compute",
+			maxDepth:  5,
+			expected:  "service/compute",
+		},
+		{
+			name:      "single level attribute with maxDepth",
+			attribute: "service",
+			maxDepth:  2,
+			expected:  "service",
+		},
+		{
+			name:      "empty string",
+			attribute: "",
+			maxDepth:  2,
+			expected:  "",
+		},
+		{
+			name:      "deeply nested attribute",
+			attribute: "a/b/c/d/e/f/g",
+			maxDepth:  3,
+			expected:  "a/b/c",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TruncateSlashPath(tt.attribute, tt.maxDepth)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
