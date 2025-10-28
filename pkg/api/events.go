@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -52,6 +53,10 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "Invalid offset value", http.StatusBadRequest)
 			return
 		}
+		if parsedOffset > math.MaxInt32 {
+			http.Error(res, fmt.Sprintf("Offset must be less than or equal to %d", math.MaxInt32), http.StatusBadRequest)
+			return
+		}
 		offset = uint(parsedOffset)
 	}
 
@@ -59,6 +64,10 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		parsedLimit, err := strconv.ParseUint(limitStr, 10, 32)
 		if err != nil {
 			http.Error(res, "Invalid limit value", http.StatusBadRequest)
+			return
+		}
+		if parsedLimit > math.MaxInt32 {
+			http.Error(res, fmt.Sprintf("Limit must be less than or equal to %d", math.MaxInt32), http.StatusBadRequest)
 			return
 		}
 		limit = uint(parsedLimit)
