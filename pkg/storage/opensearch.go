@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
@@ -42,10 +44,24 @@ func (os *OpenSearch) init() {
 	logg.Debug("Using OpenSearch URL: %s", url)
 	logg.Debug("Using OpenSearch Username: %s", username)
 
+	// Create custom HTTP transport with optimized connection pooling.
+	// Default http.Transport has MaxIdleConnsPerHost=2 which is too low for production.
+	// These settings are based on opensearch-go documentation recommendations.
+	transport := &http.Transport{
+		MaxIdleConns:          100,              // Total idle connections across all hosts
+		MaxIdleConnsPerHost:   10,               // Idle connections per host (opensearch-go recommended)
+		MaxConnsPerHost:       0,                // Unlimited active connections (0 = no limit)
+		IdleConnTimeout:       90 * time.Second, // How long idle connections stay open
+		ResponseHeaderTimeout: 5 * time.Second,  // Timeout waiting for response headers
+		ExpectContinueTimeout: 1 * time.Second,  // Timeout for 100-continue responses
+		// DisableKeepAlives: false (default) - Keep-alive enabled for connection reuse
+	}
+
 	// Create client configuration
 	config := opensearchapi.Config{
 		Client: opensearch.Config{
 			Addresses: []string{url},
+			Transport: transport, // Use custom transport with better pooling
 		},
 	}
 
