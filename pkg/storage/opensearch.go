@@ -54,12 +54,12 @@ func (os *OpenSearch) init() {
 		responseHeaderTimeout = 5
 	}
 	transport := &http.Transport{
-		MaxIdleConns:          100,              // Total idle connections across all hosts
-		MaxIdleConnsPerHost:   10,               // Idle connections per host (opensearch-go recommended)
-		MaxConnsPerHost:       0,                // Unlimited active connections (0 = no limit)
-		IdleConnTimeout:       90 * time.Second, // How long idle connections stay open
+		MaxIdleConns:          100,                                                // Total idle connections across all hosts
+		MaxIdleConnsPerHost:   10,                                                 // Idle connections per host (opensearch-go recommended)
+		MaxConnsPerHost:       0,                                                  // Unlimited active connections (0 = no limit)
+		IdleConnTimeout:       90 * time.Second,                                   // How long idle connections stay open
 		ResponseHeaderTimeout: time.Duration(responseHeaderTimeout) * time.Second, // Timeout waiting for response headers
-		ExpectContinueTimeout: 1 * time.Second,  // Timeout for 100-continue responses
+		ExpectContinueTimeout: 1 * time.Second,                                    // Timeout for 100-continue responses
 		// DisableKeepAlives: false (default) - Keep-alive enabled for connection reuse
 	}
 
