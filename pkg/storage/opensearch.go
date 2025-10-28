@@ -47,12 +47,18 @@ func (os *OpenSearch) init() {
 	// Create custom HTTP transport with optimized connection pooling.
 	// Default http.Transport has MaxIdleConnsPerHost=2 which is too low for production.
 	// These settings are based on opensearch-go documentation recommendations.
+	// ResponseHeaderTimeout is configurable via opensearch.response_header_timeout (seconds).
+	// If not set, defaults to 5 seconds. Increase for high-latency environments.
+	responseHeaderTimeout := viper.GetInt("opensearch.response_header_timeout")
+	if responseHeaderTimeout <= 0 {
+		responseHeaderTimeout = 5
+	}
 	transport := &http.Transport{
 		MaxIdleConns:          100,              // Total idle connections across all hosts
 		MaxIdleConnsPerHost:   10,               // Idle connections per host (opensearch-go recommended)
 		MaxConnsPerHost:       0,                // Unlimited active connections (0 = no limit)
 		IdleConnTimeout:       90 * time.Second, // How long idle connections stay open
-		ResponseHeaderTimeout: 5 * time.Second,  // Timeout waiting for response headers
+		ResponseHeaderTimeout: time.Duration(responseHeaderTimeout) * time.Second, // Timeout waiting for response headers
 		ExpectContinueTimeout: 1 * time.Second,  // Timeout for 100-continue responses
 		// DisableKeepAlives: false (default) - Keep-alive enabled for connection reuse
 	}
