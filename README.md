@@ -68,7 +68,7 @@ Hermez enables customer access for audit relevant events that occur from OpenSta
 - [OpenStack Audit Middleware](https://github.com/sapcc/openstack-audit-middleware) - To Generate audit events in a WSGI Pipeline
 - RabbitMQ - To queue audit events from OpenStack
 - Logstash - To transform and route audit events
-- **Elasticsearch** or **OpenSearch** - To store audit events for the API to query (Hermez supports both backends)
+- **OpenSearch** (storage) - To store audit events for the API to query
 
 </details>
 

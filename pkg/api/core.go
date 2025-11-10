@@ -74,7 +74,7 @@ type V1API struct {
 // Example:
 //
 //	validator := gopherpolicy.NewValidator(enforcer, logger)
-//	storage := elasticsearch.NewStorage(config)
+//	storage := opensearch.NewStorage(config)
 //	api := NewV1API(validator, storage)
 func NewV1API(validator gopherpolicy.Validator, storageInterface storage.Storage) *V1API {
 	api := &V1API{

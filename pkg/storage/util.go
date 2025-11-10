@@ -10,7 +10,7 @@ import (
 	"github.com/sapcc/go-api-declarations/cadf"
 )
 
-// CADFFieldMapping maps API field names to Elasticsearch/OpenSearch CADF index fields.
+// CADFFieldMapping maps API field names to OpenSearch CADF index fields.
 // The .keyword suffix is used for exact-match queries and aggregations, avoiding text analysis and tokenization.
 // This mapping is shared across all storage backends to ensure consistency in CADF event querying.
 var CADFFieldMapping = map[string]string{

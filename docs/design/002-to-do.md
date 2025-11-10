@@ -4,9 +4,9 @@ SPDX-FileCopyrightText: 2025 SAP SE or an SAP affiliate company
 SPDX-License-Identifier: Apache-2.0
 -->
 
-* Replacement of Logstash for transferring events from RabbitMQ to 
-    * If we wish to configure the service via API, it would be significantly easier to have an API against which to edit the configuration. Logstash doesn't enable this, using config files. Those config files can be live changed while the service runs, but this isn't ideal. In later versions of ElasticSearch/Logstash there is an API for configuration changes, but it doesn't enable the granular changes we require.
-    * We want to send all events to OpenStack Swift, as well as ElasticSearch. Logstash can possibly use this with the s3 api, however if we want to do anything like putting events into ProjectID buckets, we're going to be unable to do that.
+* Replacement of Logstash for transferring events from RabbitMQ to
+    * If we wish to configure the service via API, it would be significantly easier to have an API against which to edit the configuration. Logstash doesn't enable this, using config files. Those config files can be live changed while the service runs, but this isn't ideal. In later versions of OpenSearch/Logstash there is an API for configuration changes, but it doesn't enable the granular changes we require.
+    * We want to send all events to OpenStack Swift, as well as OpenSearch. Logstash can possibly use this with the s3 api, however if we want to do anything like putting events into ProjectID buckets, we're going to be unable to do that.
     * If we want to have a configuration of the service for users, we're going to need an api into the ETL of events.
 
 * Requirements  
@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
     * Offer a configuration option via API and UI on how long the audit log should be archived.
     * Need storage/state for Configuration Options. Database, or Key/Value store.
 
-* Proposal 1 - Take Data from ElasticSearch and put it into swift.
+* Proposal 1 - Take Data from OpenSearch and put it into swift.
     * Implement a swift upload of "chunked" audit messages by a key into a swift container in the customer project.
         * Chunked by day index makes sense. 
         * Export to CSV or Export to JSON
@@ -50,8 +50,8 @@ SPDX-License-Identifier: Apache-2.0
 
 
 * Actions
-    * I think we can safely assume that an export of Elasticsearch data into JSON or CSV, is going to be the fastest time to value. 
-    * Start work on an export from ElasticSearch to JSON or CSV, and just put it into files.
+    * I think we can safely assume that an export of OpenSearch data into JSON or CSV, is going to be the fastest time to value.
+    * Start work on an export from OpenSearch to JSON or CSV, and just put it into files.
         * Once it's in files, work on S3 connector to swift for it. 
         * Place files into S3/swift
         
