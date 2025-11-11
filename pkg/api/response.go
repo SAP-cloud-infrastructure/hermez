@@ -12,8 +12,8 @@ import (
 	"github.com/sapcc/go-bits/respondwith"
 )
 
-// ReturnESJSON is a custom response helper that preserves Elasticsearch URL formatting.
-// This is needed because Elasticsearch requires literal & characters in URLs, but Go's
+// ReturnESJSON is a custom response helper that preserves the storage backend URL formatting.
+// This is needed because OpenSearch requires literal & characters in URLs, but Go's
 // JSON marshaler escapes them as \u0026.
 //
 // Example:
@@ -30,7 +30,7 @@ func ReturnESJSON(w http.ResponseWriter, code int, data any) {
 		return
 	}
 
-	// Replace escaped ampersands with literal ones for Elasticsearch compatibility
+	// Replace escaped ampersands with literal ones for storage backend compatibility
 	payload = bytes.ReplaceAll(payload, []byte("\\u0026"), []byte("&"))
 
 	w.Header().Set("Content-Type", "application/json")

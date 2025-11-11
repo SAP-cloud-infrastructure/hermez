@@ -23,7 +23,7 @@ var (
 	})
 	storageErrorsCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "hermes_storage_errors_count",
-		Help: "Number of technical errors occurred when accessing underlying storage (i.e. Elasticsearch)",
+		Help: "Number of technical errors occurred when accessing underlying storage (i.e. OpenSearch)",
 	})
 
 	// Metrics for handler instrumentation

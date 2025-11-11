@@ -10,7 +10,7 @@ import (
 )
 
 // Status contains Prometheus status strings
-// TODO: Determine if we want a similar setup for Elasticsearch.
+// TODO: Determine if we want a similar setup for OpenSearch.
 type Status string
 
 const (
@@ -49,7 +49,7 @@ type Response struct {
 // Storage is an interface that wraps the underlying event storage mechanism.
 // Because it is an interface, the real implementation can be mocked away in unit tests.
 type Storage interface {
-	/********** requests to ElasticSearch **********/
+	/********** requests to the storage backend **********/
 	GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error)
 	GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error)
 	GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error)
@@ -89,7 +89,7 @@ type AttributeFilter struct {
 
 // Thanks to the tool at https://mholt.github.io/json-to-go/
 
-// eventListwithTotal contains JSON annotations for parsing the result from ElasticSearch
+// eventListwithTotal contains JSON annotations for parsing the result from the storage backend
 type eventListWithTotal struct {
 	Total  int          `json:"total"`
 	Events []cadf.Event `json:"events"`
