@@ -49,7 +49,7 @@ type Response struct {
 // Storage is an interface that wraps the underlying event storage mechanism.
 // Because it is an interface, the real implementation can be mocked away in unit tests.
 type Storage interface {
-	/********** requests to storage backend **********/
+	/********** requests to the storage backend **********/
 	GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error)
 	GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error)
 	GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error)
