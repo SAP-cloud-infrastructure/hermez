@@ -10,7 +10,7 @@ import (
 	"github.com/sapcc/go-api-declarations/cadf"
 )
 
-// Mock elasticsearch driver with static data
+// Mock opensearch driver with static data
 type Mock struct{}
 
 // GetEvents mock with static data
