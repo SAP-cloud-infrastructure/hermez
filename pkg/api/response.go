@@ -12,7 +12,7 @@ import (
 	"github.com/sapcc/go-bits/respondwith"
 )
 
-// ReturnESJSON is a custom response helper that preserves storage backend URL formatting.
+// ReturnESJSON is a custom response helper that preserves the storage backend URL formatting.
 // This is needed because OpenSearch requires literal & characters in URLs, but Go's
 // JSON marshaler escapes them as \u0026.
 //
