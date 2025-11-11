@@ -89,7 +89,7 @@ type AttributeFilter struct {
 
 // Thanks to the tool at https://mholt.github.io/json-to-go/
 
-// eventListwithTotal contains JSON annotations for parsing the result from storage backend
+// eventListwithTotal contains JSON annotations for parsing the result from the storage backend
 type eventListWithTotal struct {
 	Total  int          `json:"total"`
 	Events []cadf.Event `json:"events"`
