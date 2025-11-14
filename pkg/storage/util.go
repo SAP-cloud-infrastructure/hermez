@@ -4,10 +4,16 @@
 package storage
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/sapcc/go-api-declarations/cadf"
+)
+
+// Tenant validation errors
+var (
+	ErrEmptyTenantID   = errors.New("tenant ID cannot be empty")
+	ErrInvalidTenantID = errors.New("tenant ID 'unavailable' is not valid for queries")
 )
 
 // CADFFieldMapping maps API field names to OpenSearch CADF index fields.
@@ -52,15 +58,24 @@ func DeduplicateEvents(events []*cadf.Event) []*cadf.Event {
 	return result
 }
 
-// indexName generates the index name for a given tenantID.
-// If tenantID is empty, queries use the audit-* wildcard (cross-tenant).
-// When a tenantID is provided, only audit-<tenantID>* is queried.
-func indexName(tenantID string) string {
-	index := "audit-*"
-	if tenantID != "" {
-		index = fmt.Sprintf("audit-%s*", tenantID)
+// indexName returns the single consolidated datastream name.
+// Tenant isolation is now enforced at document level via tenant_ids field,
+// not through separate per-tenant indexes.
+func indexName() string {
+	return "hermes"
+}
+
+// validateTenantID ensures the tenant ID is valid for querying.
+// Returns an error if the tenant ID is empty, contains "unavailable",
+// or is otherwise invalid.
+func validateTenantID(tenantID string) error {
+	if tenantID == "" {
+		return ErrEmptyTenantID
 	}
-	return index
+	if tenantID == "unavailable" {
+		return ErrInvalidTenantID
+	}
+	return nil
 }
 
 // TruncateSlashPath truncates slash-separated paths to maxDepth levels.
