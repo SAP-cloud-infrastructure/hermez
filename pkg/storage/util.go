@@ -66,8 +66,8 @@ func indexName() string {
 }
 
 // validateTenantID ensures the tenant ID is valid for querying.
-// Returns an error if the tenant ID is empty, contains "unavailable",
-// or is otherwise invalid.
+// Returns an error if the tenant ID is empty or equals "unavailable".
+//
 func validateTenantID(tenantID string) error {
 	if tenantID == "" {
 		return ErrEmptyTenantID
