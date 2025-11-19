@@ -48,10 +48,10 @@ func (os *OpenSearch) init() {
 	// Default http.Transport has MaxIdleConnsPerHost=2 which is too low for production.
 	// These settings are based on opensearch-go documentation recommendations.
 	// ResponseHeaderTimeout is configurable via opensearch.response_header_timeout (seconds).
-	// If not set, defaults to 5 seconds. Increase for high-latency environments.
+	// If not set, defaults to 60 seconds. Increase for high-latency environments.
 	responseHeaderTimeout := viper.GetInt("opensearch.response_header_timeout")
 	if responseHeaderTimeout <= 0 {
-		responseHeaderTimeout = 5
+		responseHeaderTimeout = 60
 	}
 	transport := &http.Transport{
 		MaxIdleConns:          100,                                                // Total idle connections across all hosts
@@ -89,8 +89,9 @@ func (os *OpenSearch) init() {
 // The field mapping is defined in util.go to ensure consistency across storage backends.
 var osFieldMapping = CADFFieldMapping
 
-// buildBoolQuery constructs a bool query JSON string from filters
-func buildBoolQuery(filter *EventFilter) map[string]any {
+// buildBoolQuery constructs a bool query JSON string from filters.
+// The tenantID parameter is used for document-level tenant isolation via the tenant_ids field.
+func buildBoolQuery(filter *EventFilter, tenantID string) map[string]any {
 	boolQuery := map[string]any{
 		"bool": map[string]any{
 			"must":     []any{},
@@ -100,6 +101,16 @@ func buildBoolQuery(filter *EventFilter) map[string]any {
 	}
 
 	boolClause := boolQuery["bool"].(map[string]any)
+
+	// Add tenant isolation filter - documents must match for inclusion in results.
+	// The tenant_ids field is a keyword array containing all tenant IDs that have access to this event.
+	if tenantID != "" {
+		boolClause["filter"] = append(boolClause["filter"].([]any), map[string]any{
+			"term": map[string]any{
+				"tenant_ids": tenantID,
+			},
+		})
+	}
 
 	// Helper to add filter or negation
 	addFilter := func(value, fieldName string) {
@@ -180,11 +191,16 @@ func buildBoolQuery(filter *EventFilter) map[string]any {
 
 // GetEvents grabs events for a given tenantID with filtering.
 func (os OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error) {
-	index := indexName(tenantID)
-	logg.Debug("Looking for events in index %s", index)
+	// Validate tenant ID
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, 0, fmt.Errorf("invalid tenant ID: %w", err)
+	}
 
-	// Build the query
-	query := buildBoolQuery(filter)
+	index := indexName()
+	logg.Debug("Looking for events in index %s for tenant %s", index, tenantID)
+
+	// Build the query with tenant filtering
+	query := buildBoolQuery(filter, tenantID)
 
 	// Build the complete search body
 	searchBody := map[string]any{
@@ -261,14 +277,33 @@ func (os OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenantI
 
 // GetEvent Returns EventDetail for a single event.
 func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error) {
-	index := indexName(tenantID)
-	logg.Debug("Looking for event %s in index %s", eventID, index)
+	// Validate tenant ID
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, fmt.Errorf("invalid tenant ID: %w", err)
+	}
 
-	// Build term query for exact ID match
+	index := indexName()
+	logg.Debug("Looking for event %s in index %s for tenant %s", eventID, index, tenantID)
+
+	// Build query with both event ID match AND tenant isolation.
+	// tenant_ids uses "filter" context for better performance (no scoring, cached).
 	queryBody := map[string]any{
 		"query": map[string]any{
-			"term": map[string]any{
-				"id": eventID,
+			"bool": map[string]any{
+				"must": []any{
+					map[string]any{
+						"term": map[string]any{
+							"id": eventID,
+						},
+					},
+				},
+				"filter": []any{
+					map[string]any{
+						"term": map[string]any{
+							"tenant_ids": tenantID,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -304,9 +339,13 @@ func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*c
 
 // GetAttributes Return all unique attributes available for filtering
 func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
-	index := indexName(tenantID)
+	// Validate tenant ID
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, fmt.Errorf("invalid tenant ID: %w", err)
+	}
 
-	logg.Debug("Looking for unique attributes for %s in index %s", filter.QueryName, index)
+	index := indexName()
+	logg.Debug("Looking for unique attributes for %s in index %s for tenant %s", filter.QueryName, index, tenantID)
 
 	// Map query name to OpenSearch field
 	var osName string
@@ -319,9 +358,21 @@ func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter,
 
 	limit := min(filter.Limit, math.MaxInt32)
 
-	// Build aggregation query
+	// Build aggregation query with tenant isolation.
+	// tenant_ids uses "filter" context for better performance (no scoring, cached).
 	searchBody := map[string]any{
 		"size": 0, // We don't need the actual documents, just aggregations
+		"query": map[string]any{
+			"bool": map[string]any{
+				"filter": []any{
+					map[string]any{
+						"term": map[string]any{
+							"tenant_ids": tenantID,
+						},
+					},
+				},
+			},
+		},
 		"aggs": map[string]any{
 			"attributes": map[string]any{
 				"terms": map[string]any{
