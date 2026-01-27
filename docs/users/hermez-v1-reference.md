@@ -253,4 +253,4 @@ List:
 
 The `max_depth` parameter functions separately from the limit parameter. While limit
 will limit the total number of records returned, there may be more than the limit 
-of values listed to contain all of the various hirearchies. 
+of values listed to contain all of the various hierarchies. 
