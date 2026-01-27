@@ -27,12 +27,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           check-latest: true
-          go-version: 1.25.4
+          go-version: 1.25.6
       - name: Build all binaries
         run: make build-all
   code_coverage:
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Post coverage report
         uses: fgrosse/go-coverage-report@v1.2.0
         with:
@@ -60,16 +60,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           check-latest: true
-          go-version: 1.25.4
+          go-version: 1.25.6
       - name: Run tests and generate coverage report
         run: make build/cover.out
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: code-coverage
           path: build/cover.out
