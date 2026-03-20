@@ -286,7 +286,7 @@ func buildGetEventQuery(eventID, tenantID string) map[string]any {
 			},
 		},
 	}
-	if tenantID != AllTenants {
+	if tenantID != "" && tenantID != AllTenants {
 		boolClause["filter"] = []any{
 			map[string]any{
 				"term": map[string]any{
@@ -357,7 +357,7 @@ func buildGetAttributesQuery(osName string, limit uint, tenantID string) map[str
 			},
 		},
 	}
-	if tenantID != AllTenants {
+	if tenantID != "" && tenantID != AllTenants {
 		searchBody["query"] = map[string]any{
 			"bool": map[string]any{
 				"filter": []any{
