@@ -274,16 +274,9 @@ func (os OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenantI
 	return events, total, nil
 }
 
-// GetEvent Returns EventDetail for a single event.
-func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error) {
-	// Validate tenant ID
-	if err := validateTenantID(tenantID); err != nil {
-		return nil, fmt.Errorf("invalid tenant ID: %w", err)
-	}
-
-	index := indexName()
-	logg.Debug("Looking for event %s in index %s for tenant %s", eventID, index, tenantID)
-
+// buildGetEventQuery constructs the OpenSearch query for retrieving a single event by ID.
+// When tenantID is AllTenants, the tenant_ids filter is omitted.
+func buildGetEventQuery(eventID, tenantID string) map[string]any {
 	boolClause := map[string]any{
 		"must": []any{
 			map[string]any{
@@ -302,11 +295,24 @@ func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*c
 			},
 		}
 	}
-	queryBody := map[string]any{
+	return map[string]any{
 		"query": map[string]any{
 			"bool": boolClause,
 		},
 	}
+}
+
+// GetEvent Returns EventDetail for a single event.
+func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error) {
+	// Validate tenant ID
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, fmt.Errorf("invalid tenant ID: %w", err)
+	}
+
+	index := indexName()
+	logg.Debug("Looking for event %s in index %s for tenant %s", eventID, index, tenantID)
+
+	queryBody := buildGetEventQuery(eventID, tenantID)
 
 	bodyJSON, err := json.Marshal(queryBody)
 	if err != nil {
@@ -337,27 +343,9 @@ func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*c
 	return nil, nil
 }
 
-// GetAttributes Return all unique attributes available for filtering
-func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
-	// Validate tenant ID
-	if err := validateTenantID(tenantID); err != nil {
-		return nil, fmt.Errorf("invalid tenant ID: %w", err)
-	}
-
-	index := indexName()
-	logg.Debug("Looking for unique attributes for %s in index %s for tenant %s", filter.QueryName, index, tenantID)
-
-	// Map query name to OpenSearch field
-	var osName string
-	if val, ok := osFieldMapping[filter.QueryName]; ok {
-		osName = val
-	} else {
-		osName = filter.QueryName
-	}
-	logg.Debug("Mapped Queryname: %s --> %s", filter.QueryName, osName)
-
-	limit := min(filter.Limit, math.MaxInt32)
-
+// buildGetAttributesQuery constructs the OpenSearch search body for attribute aggregation.
+// When tenantID is AllTenants, the tenant_ids query filter is omitted.
+func buildGetAttributesQuery(osName string, limit uint, tenantID string) map[string]any {
 	searchBody := map[string]any{
 		"size": 0,
 		"aggs": map[string]any{
@@ -382,6 +370,31 @@ func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter,
 			},
 		}
 	}
+	return searchBody
+}
+
+// GetAttributes Return all unique attributes available for filtering
+func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
+	// Validate tenant ID
+	if err := validateTenantID(tenantID); err != nil {
+		return nil, fmt.Errorf("invalid tenant ID: %w", err)
+	}
+
+	index := indexName()
+	logg.Debug("Looking for unique attributes for %s in index %s for tenant %s", filter.QueryName, index, tenantID)
+
+	// Map query name to OpenSearch field
+	var osName string
+	if val, ok := osFieldMapping[filter.QueryName]; ok {
+		osName = val
+	} else {
+		osName = filter.QueryName
+	}
+	logg.Debug("Mapped Queryname: %s --> %s", filter.QueryName, osName)
+
+	limit := min(filter.Limit, math.MaxInt32)
+
+	searchBody := buildGetAttributesQuery(osName, limit, tenantID)
 
 	bodyJSON, err := json.Marshal(searchBody)
 	if err != nil {
