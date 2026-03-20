@@ -5,8 +5,19 @@ package storage
 
 import (
 	"context"
+	"errors"
 
 	"github.com/sapcc/go-api-declarations/cadf"
+)
+
+// AllTenants is the sentinel tenantID value that disables tenant filtering
+// for pre-authorized cross-tenant queries.
+const AllTenants = "*"
+
+// Tenant validation errors
+var (
+	ErrEmptyTenantID   = errors.New("tenant ID cannot be empty")
+	ErrInvalidTenantID = errors.New("tenant ID 'unavailable' is not valid for queries")
 )
 
 // Status contains Prometheus status strings
@@ -48,6 +59,11 @@ type Response struct {
 
 // Storage is an interface that wraps the underlying event storage mechanism.
 // Because it is an interface, the real implementation can be mocked away in unit tests.
+//
+// The tenantID parameter on query methods scopes results to a single tenant.
+// The special value AllTenants ("*") disables tenant filtering for pre-authorized
+// cross-tenant queries. Implementations must not re-check authorization;
+// the caller is responsible for verifying access before passing AllTenants.
 type Storage interface {
 	/********** requests to the storage backend **********/
 	GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error)
@@ -102,4 +118,18 @@ type AttributeValueList []AttributeValue
 type AttributeValue struct {
 	Value string `json:"value"`
 	Count int64  `json:"-"` // Json to not include it in JSON return
+}
+
+// validateTenantID ensures the tenant ID is valid for querying.
+// Returns an error if the tenant ID is empty or equals "unavailable".
+// AllTenants ("*") is valid and indicates a cross-tenant query; the caller
+// must be pre-authorized for cross-tenant access before reaching the storage layer.
+func validateTenantID(tenantID string) error {
+	if tenantID == "" {
+		return ErrEmptyTenantID
+	}
+	if tenantID == "unavailable" {
+		return ErrInvalidTenantID
+	}
+	return nil
 }

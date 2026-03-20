@@ -4,16 +4,9 @@
 package storage
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/sapcc/go-api-declarations/cadf"
-)
-
-// Tenant validation errors
-var (
-	ErrEmptyTenantID   = errors.New("tenant ID cannot be empty")
-	ErrInvalidTenantID = errors.New("tenant ID 'unavailable' is not valid for queries")
 )
 
 // CADFFieldMapping maps API field names to OpenSearch CADF index fields.
@@ -63,18 +56,6 @@ func DeduplicateEvents(events []*cadf.Event) []*cadf.Event {
 // not through separate per-tenant indexes.
 func indexName() string {
 	return "hermes"
-}
-
-// validateTenantID ensures the tenant ID is valid for querying.
-// Returns an error if the tenant ID is empty or equals "unavailable".
-func validateTenantID(tenantID string) error {
-	if tenantID == "" {
-		return ErrEmptyTenantID
-	}
-	if tenantID == "unavailable" {
-		return ErrInvalidTenantID
-	}
-	return nil
 }
 
 // TruncateSlashPath truncates slash-separated paths to maxDepth levels.

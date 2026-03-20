@@ -102,9 +102,8 @@ func buildBoolQuery(filter *EventFilter, tenantID string) map[string]any {
 
 	boolClause := boolQuery["bool"].(map[string]any)
 
-	// Add tenant isolation filter - documents must match for inclusion in results.
-	// The tenant_ids field is a keyword array containing all tenant IDs that have access to this event.
-	if tenantID != "" {
+	// tenant_ids is a keyword array containing all tenant IDs with access to this event.
+	if tenantID != "" && tenantID != AllTenants {
 		boolClause["filter"] = append(boolClause["filter"].([]any), map[string]any{
 			"term": map[string]any{
 				"tenant_ids": tenantID,
@@ -285,26 +284,27 @@ func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*c
 	index := indexName()
 	logg.Debug("Looking for event %s in index %s for tenant %s", eventID, index, tenantID)
 
-	// Build query with both event ID match AND tenant isolation.
-	// tenant_ids uses "filter" context for better performance (no scoring, cached).
-	queryBody := map[string]any{
-		"query": map[string]any{
-			"bool": map[string]any{
-				"must": []any{
-					map[string]any{
-						"term": map[string]any{
-							"id": eventID,
-						},
-					},
-				},
-				"filter": []any{
-					map[string]any{
-						"term": map[string]any{
-							"tenant_ids": tenantID,
-						},
-					},
+	boolClause := map[string]any{
+		"must": []any{
+			map[string]any{
+				"term": map[string]any{
+					"id": eventID,
 				},
 			},
+		},
+	}
+	if tenantID != AllTenants {
+		boolClause["filter"] = []any{
+			map[string]any{
+				"term": map[string]any{
+					"tenant_ids": tenantID,
+				},
+			},
+		}
+	}
+	queryBody := map[string]any{
+		"query": map[string]any{
+			"bool": boolClause,
 		},
 	}
 
@@ -358,11 +358,19 @@ func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter,
 
 	limit := min(filter.Limit, math.MaxInt32)
 
-	// Build aggregation query with tenant isolation.
-	// tenant_ids uses "filter" context for better performance (no scoring, cached).
 	searchBody := map[string]any{
-		"size": 0, // We don't need the actual documents, just aggregations
-		"query": map[string]any{
+		"size": 0,
+		"aggs": map[string]any{
+			"attributes": map[string]any{
+				"terms": map[string]any{
+					"field": osName,
+					"size":  limit,
+				},
+			},
+		},
+	}
+	if tenantID != AllTenants {
+		searchBody["query"] = map[string]any{
 			"bool": map[string]any{
 				"filter": []any{
 					map[string]any{
@@ -372,15 +380,7 @@ func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter,
 					},
 				},
 			},
-		},
-		"aggs": map[string]any{
-			"attributes": map[string]any{
-				"terms": map[string]any{
-					"field": osName,
-					"size":  limit,
-				},
-			},
-		},
+		}
 	}
 
 	bodyJSON, err := json.Marshal(searchBody)
