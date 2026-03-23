@@ -29,6 +29,7 @@ SPDX-License-Identifier = "Apache-2.0"
 path = [
   ".github/assets/*.png",
   "build/*.out",
+  "CLAUDE.md",
 ]
 SPDX-FileCopyrightText = "SAP SE or an SAP affiliate company"
 SPDX-License-Identifier = "Apache-2.0"
