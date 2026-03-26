@@ -11,8 +11,8 @@ require (
 	github.com/opensearch-project/opensearch-go/v4 v4.5.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
-	github.com/sapcc/go-api-declarations v1.20.2
-	github.com/sapcc/go-bits v0.0.0-20260323102131-ee717bce9a41
+	github.com/sapcc/go-api-declarations v1.21.0
+	github.com/sapcc/go-bits v0.0.0-20260326130200-4521b37f2cb0
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
 )
