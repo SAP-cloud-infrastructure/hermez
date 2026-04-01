@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/logg"
@@ -38,6 +39,11 @@ func main() {
 
 	setDefaultConfig()
 	readConfig(configPath)
+
+	if viper.GetString("hermes.keystone_driver") == "keystone" && viper.GetString("hermes.PolicyFilePath") == "" {
+		logg.Fatal("hermes.PolicyFilePath must be set when using the keystone driver")
+	}
+
 	keystoneDriver := configuredKeystoneDriver()
 	storageDriver := configuredStorageDriver()
 
@@ -96,12 +102,14 @@ func configuredKeystoneDriver() gopherpolicy.Validator {
 	driverName := viper.GetString("hermes.keystone_driver")
 	switch driverName {
 	case "keystone":
-		return must.Return(identity.NewTokenValidator(context.TODO()))
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return must.Return(identity.NewTokenValidator(ctx))
 	case "mock":
 		return mock.NewValidator(mock.NewEnforcer(), nil)
 	default:
-		logg.Error("Couldn't match a keystone driver for configured value \"%s\"", driverName)
-		return nil
+		logg.Fatal("unknown keystone_driver %q", driverName)
+		return nil // unreachable
 	}
 }
 
@@ -116,7 +124,7 @@ func configuredStorageDriver() storage.Storage {
 	case "mock":
 		return mockStorage
 	default:
-		logg.Error("Couldn't match a storage driver for configured value \"%s\"", driverName)
-		return nil
+		logg.Fatal("unknown storage_driver %q", driverName)
+		return nil // unreachable
 	}
 }
