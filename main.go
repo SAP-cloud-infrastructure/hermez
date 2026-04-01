@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sapcc/go-bits/gopherpolicy"
@@ -40,7 +41,7 @@ func main() {
 	setDefaultConfig()
 	readConfig(configPath)
 
-	if viper.GetString("hermes.keystone_driver") == "keystone" && viper.GetString("hermes.PolicyFilePath") == "" {
+	if viper.GetString("hermes.keystone_driver") == "keystone" && strings.TrimSpace(viper.GetString("hermes.PolicyFilePath")) == "" {
 		logg.Fatal("hermes.PolicyFilePath must be set when using the keystone driver")
 	}
 
