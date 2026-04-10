@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/opensearch-project/opensearch-go/v4"
@@ -25,13 +26,11 @@ import (
 // OpenSearch contains an opensearchapi.Client we pass around after init.
 type OpenSearch struct {
 	osClient *opensearchapi.Client
+	initOnce sync.Once
 }
 
 func (os *OpenSearch) client() *opensearchapi.Client {
-	// Lazy initialisation - don't connect to OpenSearch until we need to
-	if os.osClient == nil {
-		os.init()
-	}
+	os.initOnce.Do(os.init)
 	return os.osClient
 }
 
@@ -189,7 +188,7 @@ func buildBoolQuery(filter *EventFilter, tenantID string) map[string]any {
 }
 
 // GetEvents grabs events for a given tenantID with filtering.
-func (os OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error) {
+func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenantID string) ([]*cadf.Event, int, error) {
 	// Validate tenant ID
 	if err := validateTenantID(tenantID); err != nil {
 		return nil, 0, fmt.Errorf("invalid tenant ID: %w", err)
@@ -303,7 +302,7 @@ func buildGetEventQuery(eventID, tenantID string) map[string]any {
 }
 
 // GetEvent Returns EventDetail for a single event.
-func (os OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error) {
+func (os *OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*cadf.Event, error) {
 	// Validate tenant ID
 	if err := validateTenantID(tenantID); err != nil {
 		return nil, fmt.Errorf("invalid tenant ID: %w", err)
@@ -374,7 +373,7 @@ func buildGetAttributesQuery(osName string, limit uint, tenantID string) map[str
 }
 
 // GetAttributes Return all unique attributes available for filtering
-func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
+func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
 	// Validate tenant ID
 	if err := validateTenantID(tenantID); err != nil {
 		return nil, fmt.Errorf("invalid tenant ID: %w", err)
@@ -462,7 +461,7 @@ func (os OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter,
 }
 
 // MaxLimit grabs the configured maxlimit for results
-func (os OpenSearch) MaxLimit() uint {
+func (os *OpenSearch) MaxLimit() uint {
 	maxLimit := viper.GetInt("opensearch.max_result_window")
 	if maxLimit < 0 {
 		return 0

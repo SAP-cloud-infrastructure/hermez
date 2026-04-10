@@ -112,7 +112,7 @@ func configuredStorageDriver() storage.Storage {
 	driverName := viper.GetString("hermes.storage_driver")
 	switch driverName {
 	case "opensearch":
-		return openSearchStorage
+		return &openSearchStorage
 	case "mock":
 		return mockStorage
 	default:
