@@ -12,7 +12,7 @@ import (
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/httpapi"
 
-	"github.com/sapcc/hermes/pkg/storage"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/storage"
 )
 
 // VersionData is used by version advertisement handlers.
@@ -96,7 +96,7 @@ func NewV1API(validator gopherpolicy.Validator, storageInterface storage.Storage
 			},
 			{
 				Relation: "describedby",
-				URL:      "https://github.com/sapcc/hermes/tree/master/docs",
+				URL:      "https://github.com/SAP-cloud-infrastructure/hermez/tree/master/docs",
 				Type:     "text/html",
 			},
 		},

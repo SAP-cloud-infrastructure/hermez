@@ -14,7 +14,7 @@ import (
 
 	"github.com/sapcc/go-bits/logg"
 
-	"github.com/sapcc/hermes/pkg/util"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/util"
 )
 
 // Setup test

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sapcc/hermes/pkg/storage"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/storage"
 )
 
 func Test_GetEvent(t *testing.T) {

@@ -8,7 +8,7 @@
         "rel": "self"
       },
       {
-        "href": "https://github.com/sapcc/hermes/tree/master/docs",
+        "href": "https://github.com/SAP-cloud-infrastructure/hermez/tree/master/docs",
         "rel": "describedby",
         "type": "text/html"
       }

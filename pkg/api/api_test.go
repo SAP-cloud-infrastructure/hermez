@@ -17,8 +17,8 @@ import (
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/mock"
 
-	"github.com/sapcc/hermes/pkg/storage"
-	"github.com/sapcc/hermes/pkg/test"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/storage"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/test"
 )
 
 func setupTest(t *testing.T) http.Handler {

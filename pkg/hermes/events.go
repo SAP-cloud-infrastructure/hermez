@@ -11,7 +11,7 @@ import (
 	"github.com/sapcc/go-api-declarations/cadf"
 	"github.com/sapcc/go-bits/logg"
 
-	"github.com/sapcc/hermes/pkg/storage"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/storage"
 )
 
 // ListEvent contains high-level data about an event, intended as a list item

@@ -15,7 +15,7 @@ import (
 	"github.com/sapcc/go-bits/httpext"
 	"github.com/sapcc/go-bits/logg"
 
-	"github.com/sapcc/hermes/pkg/storage"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/storage"
 )
 
 // Server Set up and start the API server using httpapi patterns

@@ -16,13 +16,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-
 	"github.com/sapcc/go-bits/errext"
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/logg"
 	"github.com/sapcc/go-bits/respondwith"
 
-	"github.com/sapcc/hermes/pkg/hermes"
+	"github.com/SAP-cloud-infrastructure/hermez/pkg/hermes"
 )
 
 // EventList is the model for JSON returned by the ListEvents API call
@@ -197,7 +196,6 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 
 		validTimeFormats := []string{time.RFC3339, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05"}
 		var isValidTimeFormat bool
-		isValidTimeFormat = false
 		// Check if the timeStr matches any of the valid time formats
 		for _, timeFormat := range validTimeFormats {
 			_, err := time.Parse(timeFormat, timeStr)
