@@ -16,12 +16,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+
 	"github.com/sapcc/go-bits/errext"
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/logg"
 	"github.com/sapcc/go-bits/respondwith"
 
-	"github.com/SAP-cloud-infrastructure/hermez/pkg/hermes"
+	"github.com/sapcc/hermes/pkg/hermes"
 )
 
 // EventList is the model for JSON returned by the ListEvents API call
