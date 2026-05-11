@@ -197,7 +197,6 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 
 		validTimeFormats := []string{time.RFC3339, "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05"}
 		var isValidTimeFormat bool
-		isValidTimeFormat = false
 		// Check if the timeStr matches any of the valid time formats
 		for _, timeFormat := range validTimeFormats {
 			_, err := time.Parse(timeFormat, timeStr)
