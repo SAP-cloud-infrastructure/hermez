@@ -253,4 +253,81 @@ List:
 
 The `max_depth` parameter functions separately from the limit parameter. While limit
 will limit the total number of records returned, there may be more than the limit 
-of values listed to contain all of the various hierarchies. 
+of values listed to contain all of the various hierarchies.
+
+## GET /v1/projects/{project_id}/data-plane-events
+
+Returns the current state of the data-plane-events delivery toggle for the
+project. See the [Data-Plane Events](data-plane-events.md) user guide for
+the conceptual overview.
+
+**Path parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| project_id | string | Keystone project ID. Must match the token's project scope. |
+
+**Response**
+
+```json
+{"enabled": false}
+```
+
+A project with no row returns `{"enabled": false}` (the default).
+
+**Scope:** project. The token's `project_id` must equal the URL `project_id`.
+
+**Required role:** `audit_viewer` or `project_admin` on the project.
+
+**Status codes**
+
+| Code | Meaning |
+| --- | --- |
+| 200 | Success. |
+| 400 | Invalid `project_id` in URL. |
+| 401 | Missing or invalid token. |
+| 403 | Token scope does not match URL, or insufficient role. |
+| 405 | Method not allowed (use GET or PATCH). |
+| 500 | Internal error; response body is an opaque UUID. |
+
+## PATCH /v1/projects/{project_id}/data-plane-events
+
+Updates the data-plane-events delivery toggle for the project.
+
+**Request**
+
+`Content-Type: application/json` (with or without `; charset=utf-8`).
+
+```json
+{"enabled": true}
+```
+
+The `enabled` field is required. Unknown fields are rejected. Body is
+capped at 64 KiB.
+
+**Response**
+
+```json
+{"enabled": true}
+```
+
+The response echoes the new state. PATCH is idempotent: setting the same
+value as currently stored is a no-op (no audit event emitted, no
+database write).
+
+**Scope:** project. The token's `project_id` must equal the URL `project_id`.
+
+**Required role:** `project_admin` on the project.
+
+**Status codes**
+
+| Code | Meaning |
+| --- | --- |
+| 200 | Success. |
+| 400 | Invalid project_id, malformed JSON, missing or unknown field. |
+| 401 | Missing or invalid token. |
+| 403 | Token scope does not match URL, or insufficient role. |
+| 405 | Method not allowed; the `Allow` response header lists supported methods. |
+| 413 | Request body exceeds 64 KiB. |
+| 415 | `Content-Type` is not `application/json`. |
+| 500 | Internal error; response body is an opaque UUID. |

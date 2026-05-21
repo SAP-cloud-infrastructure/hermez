@@ -1,4 +1,6 @@
 {
-  "event:list":     "@",
-  "event:show":     "@"
+  "event:list":              "@",
+  "event:show":              "@",
+  "data_plane_events:show":  "@",
+  "data_plane_events:update":"@"
 }

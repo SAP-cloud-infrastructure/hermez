@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sapcc/go-bits/audittools"
+	"github.com/sapcc/go-bits/easypg"
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/logg"
 	"github.com/sapcc/go-bits/mock"
@@ -19,11 +21,17 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/sapcc/hermes/pkg/api"
+	"github.com/sapcc/hermes/pkg/data_plane_events"
 	"github.com/sapcc/hermes/pkg/identity"
 	"github.com/sapcc/hermes/pkg/storage"
 )
 
 const version = "1.2.0"
+
+// observerID is the stable Observer.ID used for CADF events emitted by Hermes
+// itself (data-plane-events toggle changes). It is intentionally a fixed UUID
+// so audit consumers can correlate events across restarts.
+const observerID = "0d7a3a87-3a8e-4c3a-9e9f-3b7c0d8b1f2a"
 
 var configPath *string
 var showVersion *bool // Add a flag to check for the version.
@@ -47,8 +55,9 @@ func main() {
 
 	keystoneDriver := configuredKeystoneDriver()
 	storageDriver := configuredStorageDriver()
+	dpeStorage, auditor := configureDataPlaneEvents()
 
-	must.Succeed(api.Server(keystoneDriver, storageDriver))
+	must.Succeed(api.Server(keystoneDriver, storageDriver, dpeStorage, auditor))
 }
 
 func parseCmdlineFlags() {
@@ -68,6 +77,12 @@ func setDefaultConfig() {
 	viper.SetDefault("API.ListenAddress", "0.0.0.0:8788")
 	viper.SetDefault("opensearch.url", "http://localhost:9200")
 	viper.SetDefault("opensearch.max_result_window", "20000")
+
+	// Postgres defaults for the data-plane-events toggle store.
+	viper.SetDefault("postgres.hostname", "localhost")
+	viper.SetDefault("postgres.port", "5432")
+	viper.SetDefault("postgres.username", "hermes")
+	viper.SetDefault("postgres.database", "hermes")
 }
 
 func readConfig(configPath *string) {
@@ -80,6 +95,11 @@ func readConfig(configPath *string) {
 		logg.Fatal(err.Error())
 	}
 	err = viper.BindEnv("opensearch.password", "HERMES_OS_PASSWORD")
+	if err != nil {
+		logg.Fatal(err.Error())
+	}
+	// Bind Postgres password env var.
+	err = viper.BindEnv("postgres.password", "HERMES_DB_PASSWORD")
 	if err != nil {
 		logg.Fatal(err.Error())
 	}
@@ -128,4 +148,58 @@ func configuredStorageDriver() storage.Storage {
 		logg.Fatal("unknown storage_driver %q", driverName)
 		return nil // unreachable
 	}
+}
+
+// configureDataPlaneEvents wires up the data-plane-events toggle store and the
+// audit emitter. The strict (production) path requires Postgres and a
+// configured RabbitMQ queue; the mock path uses an in-memory Storage and a
+// NullAuditor so the binary can run locally.
+//
+// The mode selector is `HERMES_RABBITMQ_QUEUE_NAME`: if it is set, we take
+// the strict path regardless of the keystone driver. This catches the
+// helm-chart footgun where `keystone_driver = "mock"` accidentally renders
+// in a production values.yaml — without the queue env var, that misrender
+// previously silently disabled audit emission.
+func configureDataPlaneEvents() (data_plane_events.Storage, audittools.Auditor) {
+	hasRabbitmqQueue := strings.TrimSpace(os.Getenv("HERMES_RABBITMQ_QUEUE_NAME")) != ""
+	keystoneDriverIsMock := viper.GetString("hermes.keystone_driver") == "mock"
+
+	if !hasRabbitmqQueue {
+		if !keystoneDriverIsMock {
+			logg.Fatal("HERMES_RABBITMQ_QUEUE_NAME must be set in production (keystone_driver=%q); refusing to start without an audit destination", viper.GetString("hermes.keystone_driver"))
+		}
+		// Local/dev path: no Postgres, no RabbitMQ.
+		return data_plane_events.NewMock(), audittools.NewNullAuditor()
+	}
+
+	dbURL := must.Return(easypg.URLFrom(easypg.URLParts{
+		HostName:     viper.GetString("postgres.hostname"),
+		Port:         viper.GetString("postgres.port"),
+		UserName:     viper.GetString("postgres.username"),
+		Password:     viper.GetString("postgres.password"),
+		DatabaseName: viper.GetString("postgres.database"),
+	}))
+	db := must.Return(easypg.Connect(dbURL, easypg.Configuration{
+		Migrations: data_plane_events.Migrations,
+	}))
+	// Pool tuning: database/sql defaults are unbounded open / 2 idle / no
+	// lifetime, which lets a single Hermes replica saturate pgbouncer on
+	// scale-up. Cap at 8 open / 5 idle and recycle every 30 minutes.
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	dpeStorage := data_plane_events.NewPostgres(db)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	auditor := must.Return(audittools.NewAuditor(ctx, audittools.AuditorOpts{
+		Observer: audittools.Observer{
+			TypeURI: "service/audit",
+			Name:    "hermes",
+			ID:      observerID,
+		},
+		EnvPrefix: "HERMES_RABBITMQ",
+	}))
+	return dpeStorage, auditor
 }

@@ -25,6 +25,22 @@ var (
 		Name: "hermes_storage_errors_count",
 		Help: "Number of technical errors occurred when accessing underlying storage (i.e. OpenSearch)",
 	})
+	// postgresErrorsCounter is incremented from the data-plane-events handler
+	// for Postgres-side failures, separate from OpenSearch storage errors so
+	// alerts can route to the right pager.
+	postgresErrorsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "hermes_postgres_errors_count",
+		Help: "Number of technical errors occurred when accessing the data-plane-events Postgres store",
+	})
+	// auditDropCounter is incremented when a CADF audit emit is dropped
+	// because the per-API non-blocking semaphore (cap 1024) is saturated.
+	// Any non-zero value is operationally significant: it means RabbitMQ
+	// delivery is far enough behind that audit events are being lost.
+	// TODO(remove-when-go-bits-storage-queue-lands): sapcc/go-bits PR #273.
+	auditDropCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "hermes_data_plane_events_audit_drops_total",
+		Help: "Number of data-plane-events audit emits dropped due to backpressure",
+	})
 
 	// Metrics for handler instrumentation
 	handlerMetrics    = make(map[string]*handlerMetricSet)
@@ -39,7 +55,10 @@ type handlerMetricSet struct {
 }
 
 func init() {
-	prometheus.MustRegister(authErrorsCounter, authFailuresCounter, storageErrorsCounter)
+	prometheus.MustRegister(
+		authErrorsCounter, authFailuresCounter, storageErrorsCounter,
+		postgresErrorsCounter, auditDropCounter,
+	)
 }
 
 // InstrumentInflight wraps a handler with inflight request metrics

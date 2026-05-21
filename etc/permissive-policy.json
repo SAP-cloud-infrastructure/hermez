@@ -1,6 +1,8 @@
 {
-  "event:list":     "@",
-  "event:show":     "@",
-  "audit:show":    "@",
-  "audit:update":  "@"
+  "event:list":              "@",
+  "event:show":              "@",
+  "audit:show":              "@",
+  "audit:update":            "@",
+  "data_plane_events:show":  "@",
+  "data_plane_events:update":"@"
 }
