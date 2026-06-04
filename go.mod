@@ -12,7 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
 	github.com/sapcc/go-api-declarations v1.22.0
-	github.com/sapcc/go-bits v0.0.0-20260529151418-8d2b33444f03
+	github.com/sapcc/go-bits v0.0.0-20260604095421-6bd206943957
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
 )
@@ -29,7 +29,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.67.5 // indirect
+	github.com/prometheus/common v0.68.1 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
@@ -38,8 +38,7 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.xyrillian.de/gg v1.7.0 // indirect
-	go.yaml.in/yaml/v2 v2.4.3 // indirect
+	go.xyrillian.de/gg v1.8.1 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
