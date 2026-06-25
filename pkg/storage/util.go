@@ -12,6 +12,8 @@ import (
 // CADFFieldMapping maps API field names to OpenSearch CADF index fields.
 // The .keyword suffix is used for exact-match queries and aggregations, avoiding text analysis and tokenization.
 // This mapping is shared across all storage backends to ensure consistency in CADF event querying.
+// The keys of this map define the documented public set of attribute names accepted by
+// GET /v1/attributes/{attribute_name}; names outside this set are rejected.
 var CADFFieldMapping = map[string]string{
 	"time":           "eventTime",
 	"action":         "action.keyword",
@@ -21,6 +23,7 @@ var CADFFieldMapping = map[string]string{
 	"observer_type":  "observer.typeURI.keyword",
 	"target_id":      "target.id.keyword",
 	"target_type":    "target.typeURI.keyword",
+	"resource_type":  "target.typeURI.keyword", // alias for target_type, per docs and ListEvents filter
 	"initiator_id":   "initiator.id.keyword",
 	"initiator_type": "initiator.typeURI.keyword",
 	"initiator_name": "initiator.name.keyword",
