@@ -222,7 +222,7 @@ returns
 | **Name** | **Type** | **Description** | **Default** |
 | --- | --- | --- | --- | 
 | max_depth | integer | max. depth / level of detail of hierarchical values | infinity / unlimited |
-| limit | integer | limit of values returned | 10000 | 
+| limit | integer | limit of values returned (capped at the server's configured maximum; requests above the cap return HTTP 400) | 10000 | 
 
 ### Hierarchical Values
 
