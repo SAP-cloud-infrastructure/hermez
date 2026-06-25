@@ -23,6 +23,7 @@ import (
 	"github.com/sapcc/go-bits/respondwith"
 
 	"github.com/sapcc/hermes/pkg/hermes"
+	"github.com/sapcc/hermes/pkg/storage"
 )
 
 // EventList is the model for JSON returned by the ListEvents API call
@@ -357,6 +358,11 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 	}
 
 	attribute, err := hermes.GetAttributes(req.Context(), &filter, indexID, p.storage)
+
+	if errors.Is(err, storage.ErrUnknownAttributeName) {
+		http.Error(res, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if respondwith.ErrorText(res, err) {
 		logg.Error("could not get attributes from Storage: %s", err)

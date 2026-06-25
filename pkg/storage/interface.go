@@ -20,6 +20,10 @@ var (
 	ErrInvalidTenantID = errors.New("tenant ID 'unavailable' is not valid for queries")
 )
 
+// ErrUnknownAttributeName is returned by GetAttributes when the requested
+// attribute_name is not in the documented public set (CADFFieldMapping keys).
+var ErrUnknownAttributeName = errors.New("unknown attribute_name")
+
 // Status contains Prometheus status strings
 // TODO: Determine if we want a similar setup for OpenSearch.
 type Status string
