@@ -382,12 +382,10 @@ func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter
 	index := indexName()
 	logg.Debug("Looking for unique attributes for %s in index %s for tenant %s", filter.QueryName, index, tenantID)
 
-	// Map query name to OpenSearch field
-	var osName string
-	if val, ok := osFieldMapping[filter.QueryName]; ok {
-		osName = val
-	} else {
-		osName = filter.QueryName
+	// Map query name to OpenSearch field. Reject names outside the documented public set.
+	osName, ok := osFieldMapping[filter.QueryName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownAttributeName, filter.QueryName)
 	}
 	logg.Debug("Mapped Queryname: %s --> %s", filter.QueryName, osName)
 
