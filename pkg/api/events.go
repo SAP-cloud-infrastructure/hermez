@@ -337,6 +337,13 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		limit = 10000
 	}
 
+	// Reject limits above the configured storage maximum, matching the
+	// offset+limit check applied to GET /v1/events in hermes.storageFilter.
+	if maxLimit := p.storage.MaxLimit(); uint(limit) > maxLimit {
+		http.Error(res, fmt.Sprintf("limit %d exceeds the maximum of %d", limit, maxLimit), http.StatusBadRequest)
+		return
+	}
+
 	logg.Debug("api.GetAttributes: Create filter")
 	filter := hermes.AttributeFilter{
 		QueryName: queryName,
