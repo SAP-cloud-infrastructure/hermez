@@ -12,7 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
 	github.com/sapcc/go-api-declarations v1.24.0
-	github.com/sapcc/go-bits v0.0.0-20260618170412-b440edfb4e25
+	github.com/sapcc/go-bits v0.0.0-20260623114633-b9734b46a368
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
 )
@@ -38,7 +38,7 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.xyrillian.de/gg v1.9.1 // indirect
+	go.xyrillian.de/gg v1.10.1 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
