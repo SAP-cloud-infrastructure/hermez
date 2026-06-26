@@ -1,6 +1,7 @@
 {
-  "event:list":     "@",
-  "event:show":     "@",
-  "audit:show":    "@",
-  "audit:update":  "@"
+  "event:list":              "@",
+  "event:show":              "@",
+  "audit:show":              "@",
+  "audit:update":            "@",
+  "dataplane_config:manage": "@"
 }

@@ -14,9 +14,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/viper"
 
+	"github.com/sapcc/go-bits/audittools"
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/mock"
 
+	"github.com/sapcc/hermes/pkg/routing"
 	"github.com/sapcc/hermes/pkg/storage"
 	"github.com/sapcc/hermes/pkg/test"
 )
@@ -41,11 +43,12 @@ func setupTest(t *testing.T) http.Handler {
 	// create test driver with the domains and projects from start-data.sql
 	validator := mock.NewValidator(mock.NewEnforcer(), nil)
 	storageInterface := storage.Mock{}
+	routingStore := routing.NewMock()
 
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
 
 	// Create API compositions using httpapi
-	v1API := NewV1API(validator, storageInterface)
+	v1API := NewV1API(validator, storageInterface, routingStore, audittools.NewNullAuditor())
 	versionAPI := NewVersionAPI(v1API.VersionData())
 	metricsAPI := NewMetricsAPI()
 
