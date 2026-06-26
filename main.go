@@ -78,10 +78,6 @@ func setDefaultConfig() {
 	viper.SetDefault("API.ListenAddress", "0.0.0.0:8788")
 	viper.SetDefault("opensearch.url", "http://localhost:9200")
 	viper.SetDefault("opensearch.max_result_window", "20000")
-	viper.SetDefault("postgres.hostname", "localhost")
-	viper.SetDefault("postgres.port", "5432")
-	viper.SetDefault("postgres.username", "hermes")
-	viper.SetDefault("postgres.dbname", "hermes")
 }
 
 func readConfig(configPath *string) {
