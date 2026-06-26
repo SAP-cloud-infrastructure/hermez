@@ -5,25 +5,26 @@ package api
 
 import (
 	"context"
-	"time"
 
 	"github.com/rs/cors"
 	"github.com/spf13/viper"
 
+	"github.com/sapcc/go-bits/audittools"
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/httpext"
 	"github.com/sapcc/go-bits/logg"
 
+	"github.com/sapcc/hermes/pkg/routing"
 	"github.com/sapcc/hermes/pkg/storage"
 )
 
 // Server Set up and start the API server using httpapi patterns
-func Server(validator gopherpolicy.Validator, storageInterface storage.Storage) error {
+func Server(ctx context.Context, validator gopherpolicy.Validator, storageInterface storage.Storage, routingStore routing.Store, auditor audittools.Auditor) error {
 	logg.Info("Starting Hermes API server")
 
 	// Create API compositions
-	v1API := NewV1API(validator, storageInterface)
+	v1API := NewV1API(validator, storageInterface, routingStore, auditor)
 	versionAPI := NewVersionAPI(v1API.VersionData())
 	metricsAPI := NewMetricsAPI()
 
@@ -37,10 +38,10 @@ func Server(validator gopherpolicy.Validator, storageInterface storage.Storage) 
 	// Apply middleware
 	handler = InstrumentInflight(handler)
 
-	// Enable CORS support
+	// Enable CORS support — PUT and DELETE are required for the dataplane-config endpoints.
 	c := cors.New(cors.Options{
 		AllowedHeaders: []string{"X-Auth-Token", "Content-Type", "Accept"},
-		AllowedMethods: []string{"GET", "HEAD"},
+		AllowedMethods: []string{"GET", "HEAD", "PUT", "DELETE"},
 		MaxAge:         600,
 	})
 	handler = c.Handler(handler)
@@ -48,6 +49,5 @@ func Server(validator gopherpolicy.Validator, storageInterface storage.Storage) 
 	// Start HTTP server
 	listenAddress := viper.GetString("API.ListenAddress")
 
-	ctx := httpext.ContextWithSIGINT(context.Background(), 10*time.Second)
 	return httpext.ListenAndServeContext(ctx, listenAddress, handler)
 }

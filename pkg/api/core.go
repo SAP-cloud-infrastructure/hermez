@@ -9,9 +9,11 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/sapcc/go-bits/audittools"
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/httpapi"
 
+	"github.com/sapcc/hermes/pkg/routing"
 	"github.com/sapcc/hermes/pkg/storage"
 )
 
@@ -32,8 +34,10 @@ type versionLinkData struct {
 
 // v1Provider provides backward compatibility for existing handler methods
 type v1Provider struct {
-	validator gopherpolicy.Validator
-	storage   storage.Storage
+	validator    gopherpolicy.Validator
+	storage      storage.Storage
+	routingStore routing.Store
+	auditor      audittools.Auditor
 }
 
 // AuthHandler wraps endpoint handlers with consistent auth logic.
@@ -63,10 +67,12 @@ func (p *v1Provider) AuthHandler(w http.ResponseWriter, r *http.Request, rule st
 
 // V1API implements the v1 API endpoints using httpapi patterns
 type V1API struct {
-	validator   gopherpolicy.Validator
-	storage     storage.Storage
-	versionData VersionData
-	provider    *v1Provider
+	validator    gopherpolicy.Validator
+	storage      storage.Storage
+	routingStore routing.Store
+	auditor      audittools.Auditor
+	versionData  VersionData
+	provider     *v1Provider
 }
 
 // NewV1API creates a new V1API instance with the provided validator and storage.
@@ -75,14 +81,18 @@ type V1API struct {
 //
 //	validator := gopherpolicy.NewValidator(enforcer, logger)
 //	storage := opensearch.NewStorage(config)
-//	api := NewV1API(validator, storage)
-func NewV1API(validator gopherpolicy.Validator, storageInterface storage.Storage) *V1API {
+//	api := NewV1API(validator, storage, routingStore, auditor)
+func NewV1API(validator gopherpolicy.Validator, storageInterface storage.Storage, routingStore routing.Store, auditor audittools.Auditor) *V1API {
 	api := &V1API{
-		validator: validator,
-		storage:   storageInterface,
+		validator:    validator,
+		storage:      storageInterface,
+		routingStore: routingStore,
+		auditor:      auditor,
 		provider: &v1Provider{
-			validator: validator,
-			storage:   storageInterface,
+			validator:    validator,
+			storage:      storageInterface,
+			routingStore: routingStore,
+			auditor:      auditor,
 		},
 	}
 
@@ -123,6 +133,15 @@ func (api *V1API) AddTo(r *mux.Router) {
 
 	r.Methods("GET").Path("/v1/attributes/{attribute_name}").Handler(
 		InstrumentDuration("GetAttributes")(InstrumentResponseSize("GetAttributes")(http.HandlerFunc(api.getAttributes))))
+
+	r.Methods("GET").Path("/v1/projects/{project_id}/dataplane-config").Handler(
+		InstrumentDuration("GetDataplaneConfig")(InstrumentResponseSize("GetDataplaneConfig")(http.HandlerFunc(api.getDataplaneConfig))))
+
+	r.Methods("PUT").Path("/v1/projects/{project_id}/dataplane-config").Handler(
+		InstrumentDuration("PutDataplaneConfig")(InstrumentResponseSize("PutDataplaneConfig")(http.HandlerFunc(api.putDataplaneConfig))))
+
+	r.Methods("DELETE").Path("/v1/projects/{project_id}/dataplane-config").Handler(
+		InstrumentDuration("DeleteDataplaneConfig")(InstrumentResponseSize("DeleteDataplaneConfig")(http.HandlerFunc(api.deleteDataplaneConfig))))
 }
 
 // Handler methods for V1API
@@ -160,4 +179,22 @@ func (api *V1API) getAttributes(w http.ResponseWriter, r *http.Request) {
 
 	// Call existing v1Provider implementation for backward compatibility
 	api.provider.GetAttributes(w, r)
+}
+
+// getDataplaneConfig handles GET /v1/projects/{project_id}/dataplane-config
+func (api *V1API) getDataplaneConfig(w http.ResponseWriter, r *http.Request) {
+	httpapi.IdentifyEndpoint(r, "/v1/projects/:project_id/dataplane-config")
+	api.provider.GetDataplaneConfig(w, r)
+}
+
+// putDataplaneConfig handles PUT /v1/projects/{project_id}/dataplane-config
+func (api *V1API) putDataplaneConfig(w http.ResponseWriter, r *http.Request) {
+	httpapi.IdentifyEndpoint(r, "/v1/projects/:project_id/dataplane-config")
+	api.provider.PutDataplaneConfig(w, r)
+}
+
+// deleteDataplaneConfig handles DELETE /v1/projects/{project_id}/dataplane-config
+func (api *V1API) deleteDataplaneConfig(w http.ResponseWriter, r *http.Request) {
+	httpapi.IdentifyEndpoint(r, "/v1/projects/:project_id/dataplane-config")
+	api.provider.DeleteDataplaneConfig(w, r)
 }

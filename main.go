@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sapcc/go-bits/audittools"
 	"github.com/sapcc/go-bits/gopherpolicy"
+	"github.com/sapcc/go-bits/httpext"
 	"github.com/sapcc/go-bits/logg"
 	"github.com/sapcc/go-bits/mock"
 	"github.com/sapcc/go-bits/must"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/sapcc/hermes/pkg/api"
 	"github.com/sapcc/hermes/pkg/identity"
+	"github.com/sapcc/hermes/pkg/routing"
 	"github.com/sapcc/hermes/pkg/storage"
 )
 
@@ -47,8 +50,14 @@ func main() {
 
 	keystoneDriver := configuredKeystoneDriver()
 	storageDriver := configuredStorageDriver()
+	routingStore := configuredRoutingStore()
 
-	must.Succeed(api.Server(keystoneDriver, storageDriver))
+	// Create the context here so the auditor's delivery goroutine participates
+	// in graceful shutdown alongside the HTTP server.
+	ctx := httpext.ContextWithSIGINT(context.Background(), 10*time.Second)
+	auditor := configuredAuditor(ctx)
+
+	must.Succeed(api.Server(ctx, keystoneDriver, storageDriver, routingStore, auditor))
 }
 
 func parseCmdlineFlags() {
@@ -65,6 +74,7 @@ func parseCmdlineFlags() {
 func setDefaultConfig() {
 	viper.SetDefault("hermes.keystone_driver", "keystone")
 	viper.SetDefault("hermes.storage_driver", "opensearch")
+	viper.SetDefault("hermes.routing_store_driver", "postgres")
 	viper.SetDefault("API.ListenAddress", "0.0.0.0:8788")
 	viper.SetDefault("opensearch.url", "http://localhost:9200")
 	viper.SetDefault("opensearch.max_result_window", "20000")
@@ -128,4 +138,44 @@ func configuredStorageDriver() storage.Storage {
 		logg.Fatal("unknown storage_driver %q", driverName)
 		return nil // unreachable
 	}
+}
+
+func configuredRoutingStore() routing.Store {
+	driverName := viper.GetString("hermes.routing_store_driver")
+	switch driverName {
+	case "postgres":
+		return must.Return(routing.NewPostgres())
+	case "mock":
+		return routing.NewMock()
+	default:
+		logg.Fatal("unknown routing_store_driver %q", driverName)
+		return nil // unreachable
+	}
+}
+
+// configuredAuditor builds the audit event publisher.
+// When HERMES_AUDIT_RABBITMQ_QUEUE_NAME is set, events are delivered to RabbitMQ.
+// Otherwise a null auditor is used — events are logged at DEBUG level and discarded.
+// This allows running Hermes without a RabbitMQ connection in development/test environments.
+//
+// Required env vars (when queue name is set):
+//
+//	HERMES_AUDIT_RABBITMQ_QUEUE_NAME  — queue to publish to (production: "notifications.info")
+//	HERMES_AUDIT_RABBITMQ_HOSTNAME    — broker host (production: "hermes-rabbitmq-notifications.hermes.svc")
+//	HERMES_AUDIT_RABBITMQ_PORT        — broker port (default: 5672)
+//	HERMES_AUDIT_RABBITMQ_USERNAME    — AMQP username (from vault: hermes/rabbitmq-user/notifications-default/user)
+//	HERMES_AUDIT_RABBITMQ_PASSWORD    — AMQP password (from vault: hermes/rabbitmq-user/notifications-default/password)
+func configuredAuditor(ctx context.Context) audittools.Auditor {
+	if osext.GetenvOrDefault("HERMES_AUDIT_RABBITMQ_QUEUE_NAME", "") == "" {
+		logg.Error("HERMES_AUDIT_RABBITMQ_QUEUE_NAME is not set — audit events will be discarded (null auditor)")
+		return audittools.NewNullAuditor()
+	}
+	return must.Return(audittools.NewAuditor(ctx, audittools.AuditorOpts{
+		EnvPrefix: "HERMES_AUDIT_RABBITMQ_",
+		Observer: audittools.Observer{
+			TypeURI: "service/hermes",
+			Name:    "hermes",
+			ID:      audittools.GenerateUUID(),
+		},
+	}))
 }

@@ -1,4 +1,5 @@
 {
-  "event:list":     "@",
-  "event:show":     "@"
+  "event:list":              "@",
+  "event:show":              "@",
+  "dataplane_config:manage": "@"
 }
