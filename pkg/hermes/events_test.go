@@ -43,7 +43,7 @@ func Test_GetEvents(t *testing.T) {
 }
 
 func Test_GetAttributes(t *testing.T) {
-	attributes, err := GetAttributes(context.Background(), &AttributeFilter{}, "", storage.Mock{})
+	attributes, err := GetAttributes(context.Background(), &AttributeFilter{QueryName: "action"}, "", storage.Mock{})
 	require.Nil(t, err)
 	require.NotNil(t, attributes)
 	assert.Equal(t, len(attributes), 6)

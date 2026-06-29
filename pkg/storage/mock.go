@@ -44,6 +44,9 @@ func (m Mock) MaxLimit() uint {
 
 // GetAttributes Mock
 func (m Mock) GetAttributes(ctx context.Context, filter *AttributeFilter, tenantID string) ([]string, error) {
+	if _, ok := CADFFieldMapping[filter.QueryName]; !ok {
+		return nil, ErrUnknownAttributeName
+	}
 	var parsedAttribute []string
 	err := json.Unmarshal(mockAttributes, &parsedAttribute)
 	return parsedAttribute, err

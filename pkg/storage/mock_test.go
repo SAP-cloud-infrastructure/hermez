@@ -51,7 +51,7 @@ func Test_MockStorage_Events(t *testing.T) {
 }
 
 func Test_MockStorage__Attributes(t *testing.T) {
-	attributesList, err := Mock{}.GetAttributes(context.Background(), &AttributeFilter{}, "b3b70c8271a845709f9a03030e705da7")
+	attributesList, err := Mock{}.GetAttributes(context.Background(), &AttributeFilter{QueryName: "action"}, "b3b70c8271a845709f9a03030e705da7")
 
 	assert.Nil(t, err)
 	assert.Equal(t, len(attributesList), 6)
