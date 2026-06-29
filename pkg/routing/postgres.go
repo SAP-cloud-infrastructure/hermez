@@ -27,21 +27,14 @@ var DBMigrations = map[string]string{
 			updated_by    VARCHAR(64) NOT NULL DEFAULT ''
 		);
 
-		-- Read-only role for log-router to consume config without write access.
-		-- The 'log-router' login role must exist in the database cluster;
-		-- it is provisioned by the hermes helm chart (postgres-ng seed).
-		DO $$
-		BEGIN
-			IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'log_router_reader') THEN
-				CREATE ROLE log_router_reader NOLOGIN;
-			END IF;
-		END
-		$$;
-		GRANT SELECT ON dataplane_config TO log_router_reader;
+		-- Grant read access directly to the log-router login role provisioned by
+		-- the hermes helm chart (postgres-ng seed). CREATE ROLE is intentionally
+		-- omitted: the hermes user lacks CREATEROLE, so role management belongs
+		-- in the chart, not in app migrations.
+		GRANT SELECT ON dataplane_config TO "log-router";
 	`,
 	"001_create_dataplane_config.down.sql": `
 		DROP TABLE IF EXISTS dataplane_config;
-		DROP ROLE IF EXISTS log_router_reader;
 	`,
 }
 

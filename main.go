@@ -171,7 +171,7 @@ func configuredAuditor(ctx context.Context) audittools.Auditor {
 		return audittools.NewNullAuditor()
 	}
 	return must.Return(audittools.NewAuditor(ctx, audittools.AuditorOpts{
-		EnvPrefix: "HERMES_AUDIT_RABBITMQ_",
+		EnvPrefix: "HERMES_AUDIT_RABBITMQ",
 		Observer: audittools.Observer{
 			TypeURI: "service/hermes",
 			Name:    "hermes",
