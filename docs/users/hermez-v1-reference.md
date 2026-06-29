@@ -203,6 +203,10 @@ event, e.g.:
 Returns the unique values of a given attribute, so that you can e.g. have users select from them. Scoped to the 
 OpenStack token.
 
+Valid values for `attribute_name`: `time`, `action`, `outcome`, `request_path`, `observer_id`, `observer_type`,
+`target_id`, `target_type`, `resource_type` (alias for `target_type`), `initiator_id`, `initiator_type`,
+`initiator_name`. Unknown names return HTTP 400.
+
 `GET /v1/attributes/action`
 
 returns

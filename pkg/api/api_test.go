@@ -74,6 +74,8 @@ func Test_API(t *testing.T) {
 		{"EventDetails", "GET", "/v1/events/7be6c4ff-b761-5f1f-b234-f5d41616c2cd", http.StatusOK, "fixtures/event-details.json"},
 		{"EventList", "GET", "/v1/events?event_type=identity.project.deleted&offset=10", http.StatusOK, "fixtures/event-list.json"},
 		{"Attributes", "GET", "/v1/attributes/resource_type?limit=10", http.StatusOK, "fixtures/attributes.json"},
+		{"AttributesKnownName", "GET", "/v1/attributes/action?limit=10", http.StatusOK, "fixtures/attributes.json"},
+		{"AttributesUnknownName", "GET", "/v1/attributes/observer.id.keyword", http.StatusBadRequest, ""},
 		{"AttributesLimitExceedsMax", "GET", "/v1/attributes/action?limit=99999", http.StatusBadRequest, ""},
 		{"InvalidEventID", "GET", "/v1/events/invalid-uuid", http.StatusBadRequest, ""},
 	}
