@@ -19,12 +19,13 @@ must not break it without a migration and coordinated release.
 | Host | PostgreSQL cluster provisioned by the `hermes` Helm chart |
 | Database | `hermes` (configurable via helm values) |
 | Table | `dataplane_config` |
-| Login role | `log_router` (provisioned by the Helm chart's postgres-ng seed) |
-| Granted role | `log_router_reader` NOLOGIN (created by hermez migration 001) |
+| Login role | `log-router` (provisioned by the Helm chart's postgres-ng seed) |
+| Access | Direct `GRANT SELECT ON dataplane_config TO "log-router"` in hermez migration 001 |
 
-Log-router connects to postgres using the `log_router` login role, which is a member
-of `log_router_reader`. The `log_router_reader` role has `SELECT` on `dataplane_config`
-and nothing else — no INSERT, UPDATE, DELETE, or access to any other table.
+Log-router connects to postgres using the `log-router` login role. Hermez's migration 001
+grants this role SELECT on `dataplane_config` directly — no intermediary NOLOGIN role.
+The `log-router` user has SELECT only — no INSERT, UPDATE, DELETE, or access to any
+other hermez-owned table.
 
 ---
 
@@ -119,13 +120,20 @@ New columns may be added in future migrations. Log-router's `SELECT` list is exp
 
 ## Credentials
 
-The `log_router` postgres login role is provisioned by the hermes Helm chart's
-`postgres-ng` seed values. Hermez does not manage this login role. The chart must:
+The `log-router` postgres login role is provisioned by the hermes Helm chart's
+`postgres-ng` seed values. Hermez's migration 001 grants it SELECT on `dataplane_config`
+directly:
 
-1. Create the `log_router` login role with a password.
-2. `GRANT log_router_reader TO log_router;`
+```sql
+GRANT SELECT ON dataplane_config TO "log-router";
+```
 
-Hermez's migration creates the `log_router_reader` NOLOGIN role and grants it
-`SELECT ON dataplane_config`. If hermez starts before the chart seeds `log_router`,
-the GRANT will succeed on the next migration run because `GRANT ... TO log_router_reader`
-does not require `log_router` to exist.
+The chart must:
+
+1. Create the `log-router` login role with a password (via postgres-ng seed).
+2. Ensure the role exists before hermez starts — hermez's `GRANT ... TO "log-router"`
+   requires the role to exist at migration time. The postgres-ng seed runs before the
+   hermez pod starts, so ordering is handled by the helm chart's init sequence.
+
+Log-router does **not** run any migrations against the hermez database. It connects
+to postgres, queries `dataplane_config`, and does nothing else schema-related.
