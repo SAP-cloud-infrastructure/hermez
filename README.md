@@ -104,11 +104,14 @@ Related Projects:
 - [Barbican Key Manager Service](https://docs.openstack.org/Barbican/latest/)
 - [Ironic Baremetal Service](https://docs.openstack.org/ironic/latest/)
 - [Octavia Load Balancer Service](https://docs.openstack.org/octavia/latest/)
+- [Ceph RGW Object Storage](https://ceph.io/) — dataplane audit events from the S3-compatible RADOS Gateway
 - [Limes Quota/Usage Tracking Service](https://github.com/sapcc/limes)
 - [Castellum Vertical Autoscaling Service](https://github.com/sapcc/castellum)
 - [Keppel Container Image Registry Service](https://github.com/sapcc/keppel)
 - [Archer End Point Service](https://github.com/sapcc/archer)
 - Cronus Email Service
+- Clavis Certificate Management Service
+- Persephone Kubernetes-as-a-Service
 
 </details>
 </br>
