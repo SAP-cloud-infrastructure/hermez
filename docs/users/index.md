@@ -32,6 +32,12 @@ Hermez provides detailed information about each event, including the 7 “W”s 
 * The OpenStack web dashboard [Elektra](https://github.com/sapcc/elektra) contains an optional *Audit*
   module that becomes accessible if Hermez is deployed in the target OpenStack cluster.
 
+## Dataplane audit events
+
+In addition to the management-plane events above, you can opt in to receive **dataplane audit events** (e.g. Ceph object storage operations) delivered directly to a Swift container in your own project.
+
+See [Dataplane Audit Events](./dataplane-events.md) for the full guide: how to enable, the event format, how to download your data, and how to verify the integrity chain.
+
 ## Retention of audit events
 
 Retention is configurable on a global level for all tenants. In the roadmap it is intended that retention will be
