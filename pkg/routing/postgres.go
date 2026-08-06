@@ -8,17 +8,21 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 
-	"github.com/sapcc/go-bits/easypg"
+	"github.com/sapcc/go-api-declarations/bininfo"
 	"github.com/sapcc/go-bits/logg"
 	"github.com/sapcc/go-bits/osext"
+	"go.xyrillian.de/gg/gsql"
+	"go.xyrillian.de/gg/pgruntime"
+
+	// load DB driver
+	_ "github.com/lib/pq"
 )
 
 // DBMigrations contains the SQL migrations for the dataplane_config table.
-// Keys must follow the golang-migrate filename convention.
-var DBMigrations = map[string]string{
-	"001_create_dataplane_config.up.sql": `
+// The keys are the schema versions. They need not be contiguous, but must be in ascending order.
+var DBMigrations = map[int64]string{
+	1: `
 		CREATE TABLE IF NOT EXISTS dataplane_config (
 			project_id    VARCHAR(64) PRIMARY KEY,
 			enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -33,14 +37,11 @@ var DBMigrations = map[string]string{
 		-- in the chart, not in app migrations.
 		GRANT SELECT ON dataplane_config TO "log-router";
 	`,
-	"001_create_dataplane_config.down.sql": `
-		DROP TABLE IF EXISTS dataplane_config;
-	`,
 }
 
 // Postgres implements Store using a PostgreSQL database.
 type Postgres struct {
-	db *sql.DB
+	db *gsql.DB
 }
 
 // NewPostgres connects to postgres using env-var based connection params and
@@ -52,25 +53,17 @@ type Postgres struct {
 //	HERMES_PG_PASSWORD
 //	HERMES_PG_DBNAME   (default: hermes)
 //	HERMES_PG_CONNECTION_OPTIONS
-func NewPostgres() (*Postgres, error) {
-	dbURL, err := easypg.URLFrom(easypg.URLParts{
+func NewPostgres(ctx context.Context) (*Postgres, error) {
+	target := pgruntime.ConnectionTarget{
 		HostName:          osext.GetenvOrDefault("HERMES_PG_HOSTNAME", "localhost"),
 		Port:              osext.GetenvOrDefault("HERMES_PG_PORT", "5432"),
 		UserName:          osext.GetenvOrDefault("HERMES_PG_USERNAME", "hermes"),
 		Password:          osext.GetenvOrDefault("HERMES_PG_PASSWORD", ""),
 		ConnectionOptions: osext.GetenvOrDefault("HERMES_PG_CONNECTION_OPTIONS", ""),
 		DatabaseName:      osext.GetenvOrDefault("HERMES_PG_DBNAME", "hermes"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("routing: cannot build postgres URL: %w", err)
+		ApplicationName:   bininfo.Component(),
 	}
-	return NewPostgresFromURL(dbURL)
-}
-
-// NewPostgresFromURL connects to postgres at the given URL and runs migrations.
-// Useful in tests that provide a pre-built URL.
-func NewPostgresFromURL(dbURL url.URL) (*Postgres, error) {
-	db, err := easypg.Connect(dbURL, easypg.Configuration{
+	db, err := pgruntime.StdConnector("postgres").Connect(ctx, target, pgruntime.ConnectionBehavior{
 		Migrations: DBMigrations,
 	})
 	if err != nil {

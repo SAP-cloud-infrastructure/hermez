@@ -8,6 +8,7 @@ require (
 	github.com/gophercloud/gophercloud/v2 v2.13.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jinzhu/copier v0.4.0
+	github.com/lib/pq v1.12.3
 	github.com/opensearch-project/opensearch-go/v4 v4.5.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rs/cors v1.11.1
@@ -15,6 +16,7 @@ require (
 	github.com/sapcc/go-bits v0.0.0-20260730170321-f6f727520601
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
+	go.xyrillian.de/gg v1.13.3
 )
 
 require (
@@ -24,9 +26,7 @@ require (
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gofrs/uuid/v5 v5.5.0 // indirect
-	github.com/golang-migrate/migrate/v4 v4.19.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	github.com/lib/pq v1.12.3 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -41,7 +41,6 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.xyrillian.de/gg v1.11.1 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

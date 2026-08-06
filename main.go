@@ -48,14 +48,14 @@ func main() {
 		logg.Fatal("hermes.PolicyFilePath must be set when using the keystone driver")
 	}
 
-	keystoneDriver := configuredKeystoneDriver()
-	storageDriver := configuredStorageDriver()
-	routingStore := configuredRoutingStore()
-
 	// Create the context here so the auditor's delivery goroutine participates
 	// in graceful shutdown alongside the HTTP server.
 	ctx := httpext.ContextWithSIGINT(context.Background(), 10*time.Second)
 	auditor := configuredAuditor(ctx)
+
+	keystoneDriver := configuredKeystoneDriver()
+	storageDriver := configuredStorageDriver()
+	routingStore := configuredRoutingStore(ctx)
 
 	must.Succeed(api.Server(ctx, keystoneDriver, storageDriver, routingStore, auditor))
 }
@@ -140,11 +140,11 @@ func configuredStorageDriver() storage.Storage {
 	}
 }
 
-func configuredRoutingStore() routing.Store {
+func configuredRoutingStore(ctx context.Context) routing.Store {
 	driverName := viper.GetString("hermes.routing_store_driver")
 	switch driverName {
 	case "postgres":
-		return must.Return(routing.NewPostgres())
+		return must.Return(routing.NewPostgres(ctx))
 	case "mock":
 		return routing.NewMock()
 	default:
