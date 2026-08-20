@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 SAP SE or an SAP affiliate company
 # SPDX-License-Identifier: Apache-2.0
 
-ARG IMAGE=golang:1.26.5-alpine3.24
+ARG IMAGE=golang:1.26.6-alpine3.24
 
 FROM $IMAGE AS builder
 
@@ -53,7 +53,7 @@ FROM alpine:3.24
 RUN addgroup -g 4200 appgroup \
   && adduser -h /home/appuser -s /sbin/nologin -G appgroup -D -u 4200 appuser
 
-# upgrade all installed packages to fix potential CVEs in advance
+# upgrade installed packages to fix potential CVEs in advance
 # also remove apk package manager to hopefully remove dependency on OpenSSL 🤞
 RUN apk upgrade --no-cache --no-progress \
   && apk del --no-cache --no-progress apk-tools musl-utils
