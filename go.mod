@@ -1,6 +1,6 @@
 module github.com/sapcc/hermes
 
-go 1.26
+go 1.27.0
 
 require (
 	github.com/databus23/goslo.policy v0.0.0-20250326134918-4afc2c56a903

@@ -23,7 +23,9 @@ make license-headers     # Add REUSE-compliant headers
 OpenStack (audit middleware) → RabbitMQ → Logstash → OpenSearch → Hermes API
 ```
 
-Hermes is the **query layer only** — it reads from OpenSearch. It does not ingest events directly. Logstash handles transformation and enrichment.
+Hermes is the **query layer only** for audit events — it reads them from OpenSearch. It does not ingest events directly. Logstash handles transformation and enrichment.
+
+It additionally **owns a small read/write store** (`pkg/routing`, Postgres) for per-project dataplane routing config, served by the `dataplane-config` endpoints. `log-router` consumes that table via direct `SELECT` (a `GRANT SELECT ... TO "log-router"` is applied in the migration).
 
 ### Package Layout
 
@@ -33,6 +35,7 @@ Hermes is the **query layer only** — it reads from OpenSearch. It does not ing
 | `pkg/api/` | HTTP handlers, routing (httpapi.Compose pattern), Prometheus metrics |
 | `pkg/hermes/` | Business logic — event filtering, list construction |
 | `pkg/storage/` | Storage interface + OpenSearch implementation + mock |
+| `pkg/routing/` | Per-project dataplane-config store (Postgres via `lib/pq`) + mock. Backs the dataplane-config endpoints |
 | `pkg/identity/` | Keystone token validation |
 | `pkg/policy/` | OpenStack policy.json enforcement |
 | `pkg/util/` | Policy loading helpers |
@@ -54,7 +57,12 @@ Hermes is the **query layer only** — it reads from OpenSearch. It does not ing
 | GET | `/v1/events` | List events (filtered, paginated) | `event:list` |
 | GET | `/v1/events/{event_id}` | Single event detail | `event:show` |
 | GET | `/v1/attributes/{attribute_name}` | Unique attribute values | `event:list` |
+| GET | `/v1/projects/{project_id}/dataplane-config` | Read project dataplane routing config | `dataplane_config:manage` |
+| PUT | `/v1/projects/{project_id}/dataplane-config` | Create/replace dataplane config (idempotent) | `dataplane_config:manage` |
+| DELETE | `/v1/projects/{project_id}/dataplane-config` | Delete dataplane config (idempotent) | `dataplane_config:manage` |
 | GET | `/metrics` | Prometheus metrics | None |
+
+> **The dataplane-config endpoints are the only write path.** They persist to Postgres (`pkg/routing`) and, beyond the policy rule, enforce that the path `project_id` equals the token's project scope (403 otherwise) — see `authDataplaneConfig` in `pkg/api/dataplane_config.go`. Emulate this belt-and-suspenders pattern for any new mutating endpoint.
 
 ## Code Conventions
 
@@ -63,7 +71,7 @@ Hermes is the **query layer only** — it reads from OpenSearch. It does not ing
 - **Logging**: `logg.Info()`, `logg.Error()`, `logg.Debug()` — controlled by `HERMES_DEBUG=true`
 - **Auth**: `gopherpolicy.Validator` / `gopherpolicy.Token` for Keystone token validation
 - **HTTP composition**: `httpapi.Compose()` to assemble router from API modules
-- **Error responses**: `respondwith.ErrorText()` for error propagation to HTTP
+- **Error responses**: `respondwith.ObfuscatedErrorText()` for backend/storage 5xx errors (returns an opaque UUID to the client, logs detail server-side — do NOT leak OpenSearch/DB internals to callers); `respondwith.ErrorText()` only for genuine client-input 4xx errors
 - **Type assertions**: `errext.As[T]()` from go-bits instead of manual type assertions
 - **Startup**: `must.Succeed()` / `must.Return()` for fatal-on-error initialization
 - **Env vars**: `osext.GetenvBool()` for boolean env parsing

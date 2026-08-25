@@ -24,6 +24,11 @@ var (
 // attribute_name is not in the documented public set (CADFFieldMapping keys).
 var ErrUnknownAttributeName = errors.New("unknown attribute_name")
 
+// ErrPartialResults is returned when the storage backend reports incomplete
+// search results. For an audit trail, callers must surface this as an explicit
+// failure rather than treating a partial page as complete.
+var ErrPartialResults = errors.New("search results are incomplete")
+
 // Status contains Prometheus status strings
 // TODO: Determine if we want a similar setup for OpenSearch.
 type Status string

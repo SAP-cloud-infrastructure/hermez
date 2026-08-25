@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -234,6 +235,10 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		Sort:          sortSpec,
 		Details:       details,
 	}
+	if utf8.RuneCountInString(filter.Search) > storage.MaxSearchQueryLength {
+		http.Error(res, "search query is too long", http.StatusBadRequest)
+		return
+	}
 
 	logg.Debug("api.ListEvents: call hermes.GetEvents()")
 	indexID, err := getIndexID(token, req, res)
@@ -241,9 +246,21 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	events, total, err := hermes.GetEvents(req.Context(), &filter, indexID, p.storage)
-	if respondwith.ErrorText(res, err) {
-		logg.Error("api.ListEvents: error calling hermes.GetEvents(): %s", err.Error())
-
+	// A window-bounds violation is client input error, not a backend failure:
+	// return 400 with the actionable message instead of an obfuscated 500.
+	if errors.Is(err, hermes.ErrWindowExceeded) {
+		http.Error(res, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// A backend timeout means the result set is incomplete. For an audit trail
+	// we must NOT return a truncated page as 200 (it would hide events and break
+	// NextURL pagination, which trusts total); report 504 so the client retries
+	// or narrows the query.
+	if errors.Is(err, storage.ErrPartialResults) {
+		respondwith.ObfuscatedErrorText(res, respondwith.CustomStatus(http.StatusGatewayTimeout, err))
+		return
+	}
+	if respondwith.ObfuscatedErrorText(res, err) {
 		// Check for UnmarshalTypeError and log it
 		if unmarshalErr, ok := errext.As[*json.UnmarshalTypeError](err); ok {
 			logg.Error("api.ListEvents: JSON unmarshal error: Type=%v, Value=%v, Offset=%v, Struct=%v, Field=%v",
@@ -302,7 +319,7 @@ func (p *v1Provider) GetEventDetails(res http.ResponseWriter, req *http.Request)
 
 	event, err := hermes.GetEvent(req.Context(), eventID, indexID, p.storage)
 
-	if respondwith.ErrorText(res, err) {
+	if respondwith.ObfuscatedErrorText(res, err) {
 		logg.Error("error getting events from Storage: %s", err)
 		storageErrorsCounter.Add(1)
 		return
@@ -333,9 +350,11 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 	maxdepth, _ := strconv.ParseUint(req.FormValue("max_depth"), 10, 32) //nolint:errcheck
 	limit, _ := strconv.ParseUint(req.FormValue("limit"), 10, 32)        //nolint:errcheck
 
-	// Default Limit of 10000 if not specified by queryparam, which is the max opensearch supports.
+	// Default to the smaller of the historic API default and the configured
+	// storage maximum. This preserves omitted (and zero) limit semantics for
+	// deployments configured below OpenSearch's usual 10000 result window.
 	if limit == 0 {
-		limit = 10000
+		limit = uint64(min(uint(10000), p.storage.MaxLimit()))
 	}
 
 	// Reject limits above the configured storage maximum, matching the
@@ -364,8 +383,14 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if respondwith.ErrorText(res, err) {
-		logg.Error("could not get attributes from Storage: %s", err)
+	// A timed-out aggregation yields an incomplete attribute set; surface 504
+	// rather than a silently-truncated 200. See storage.ErrPartialResults.
+	if errors.Is(err, storage.ErrPartialResults) {
+		respondwith.ObfuscatedErrorText(res, respondwith.CustomStatus(http.StatusGatewayTimeout, err))
+		return
+	}
+
+	if respondwith.ObfuscatedErrorText(res, err) {
 		storageErrorsCounter.Add(1)
 		return
 	}

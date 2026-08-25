@@ -4,8 +4,15 @@
 package storage
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/opensearch-project/opensearch-go/v4"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,6 +32,130 @@ func TestBuildBoolQuery_TenantFiltering(t *testing.T) {
 	boolClause = query["bool"].(map[string]any)
 	filters = boolClause["filter"].([]any)
 	assert.Empty(t, filters, "expected no tenant_ids filter for AllTenants")
+}
+
+func TestOpenSearchRejectsPartialResults(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*OpenSearch) error
+	}{
+		{
+			name: "events",
+			call: func(os *OpenSearch) error {
+				_, _, err := os.GetEvents(context.Background(), &EventFilter{Limit: 1}, "tenant-a")
+				return err
+			},
+		},
+		{
+			name: "event",
+			call: func(os *OpenSearch) error {
+				_, err := os.GetEvent(context.Background(), "event-id", "tenant-a")
+				return err
+			},
+		},
+		{
+			name: "attributes",
+			call: func(os *OpenSearch) error {
+				_, err := os.GetAttributes(context.Background(), &AttributeFilter{QueryName: "action", Limit: 1}, "tenant-a")
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os := openSearchTestClient(t, `{"timed_out":false,"_shards":{"failed":1},"hits":{"total":{"value":1},"hits":[]}}`, func(map[string]any) {})
+			assert.ErrorIs(t, tt.call(os), ErrPartialResults)
+		})
+	}
+}
+
+// TestOpenSearchTimeoutResponsesAreRejected verifies that the real OpenSearch
+// v4 client decodes a successful HTTP response with timed_out=true and that
+// neither query path can return the partial payload as a successful result.
+func TestOpenSearchTimeoutResponsesAreRejected(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		call     func(*OpenSearch) (any, error)
+	}{
+		{
+			name: "events",
+			response: `{
+				"timed_out": true,
+				"_shards": {"failed": 0},
+				"hits": {"total": {"value": 1}, "hits": []}
+			}`,
+			call: func(os *OpenSearch) (any, error) {
+				events, _, err := os.GetEvents(context.Background(), &EventFilter{Limit: 1}, "tenant-a")
+				return events, err
+			},
+		},
+		{
+			name: "attributes",
+			response: `{
+				"timed_out": true,
+				"_shards": {"failed": 0},
+				"aggregations": {"attributes": {"buckets": [{"key": "partial", "doc_count": 1}]}}
+			}`,
+			call: func(os *OpenSearch) (any, error) {
+				attributes, err := os.GetAttributes(context.Background(), &AttributeFilter{QueryName: "action", Limit: 1}, "tenant-a")
+				return attributes, err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os := openSearchTestClient(t, tt.response, func(map[string]any) {})
+			result, err := tt.call(os)
+
+			assert.ErrorIs(t, err, ErrPartialResults)
+			assert.Nil(t, result, "timed-out searches must not return a partial result")
+		})
+	}
+}
+
+func TestOpenSearchAttributeLimitIsCapped(t *testing.T) {
+	previousMaxLimit := viper.GetInt("opensearch.max_result_window")
+	viper.Set("opensearch.max_result_window", 7)
+	t.Cleanup(func() { viper.Set("opensearch.max_result_window", previousMaxLimit) })
+
+	os := openSearchTestClient(t, `{"timed_out":false,"_shards":{"failed":0},"aggregations":{"attributes":{"buckets":[]}}}`, func(body map[string]any) {
+		aggs := body["aggs"].(map[string]any)["attributes"].(map[string]any)["terms"].(map[string]any)
+		assert.Equal(t, float64(7), aggs["size"])
+	})
+	attributes, err := os.GetAttributes(context.Background(), &AttributeFilter{QueryName: "action", Limit: 100}, "tenant-a")
+	assert.NoError(t, err)
+	assert.Empty(t, attributes)
+}
+
+func openSearchTestClient(t *testing.T, response string, checkBody func(map[string]any)) *OpenSearch {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("allow_partial_search_results"); got != "false" {
+			t.Errorf("allow_partial_search_results = %q, want false", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode search request: %v", err)
+		}
+		checkBody(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte(response)); err != nil {
+			t.Errorf("write search response: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{Addresses: []string{server.URL}}})
+	if err != nil {
+		t.Fatalf("create OpenSearch test client: %v", err)
+	}
+	os := &OpenSearch{osClient: client}
+	os.initOnce.Do(func() {})
+	return os
 }
 
 func TestBuildGetEventQuery_TenantFiltering(t *testing.T) {
