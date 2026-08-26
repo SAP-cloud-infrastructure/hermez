@@ -157,7 +157,7 @@ func parseTimeParam(res http.ResponseWriter, req *http.Request) (map[string]stri
 			}
 		}
 		if !valid {
-			msg := fmt.Sprintf("invalid time format: %s", timeStr)
+			msg := "invalid time format: " + timeStr
 			http.Error(res, msg, http.StatusBadRequest)
 			return nil, errors.New(msg)
 		}
