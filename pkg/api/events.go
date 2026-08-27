@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
 	"github.com/sapcc/go-bits/errext"
