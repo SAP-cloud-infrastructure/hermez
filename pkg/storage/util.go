@@ -29,6 +29,9 @@ var CADFFieldMapping = map[string]string{
 	"initiator_name": "initiator.name.keyword",
 }
 
+// MaxSearchQueryLength bounds free-text searches before they reach OpenSearch.
+const MaxSearchQueryLength = 4096
+
 // DeduplicateEvents removes duplicate events by ID while preserving order.
 // First occurrence of each event is kept. This handles cases where the same
 // event exists in multiple indexes during index migration or multi-index queries.

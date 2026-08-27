@@ -26,7 +26,7 @@ import (
 func ReturnESJSON(w http.ResponseWriter, code int, data any) {
 	payload, err := json.MarshalIndent(&data, "", "  ")
 	if err != nil {
-		respondwith.ErrorText(w, err)
+		respondwith.ObfuscatedErrorText(w, err)
 		return
 	}
 
@@ -34,6 +34,12 @@ func ReturnESJSON(w http.ResponseWriter, code int, data any) {
 	payload = bytes.ReplaceAll(payload, []byte("\\u0026"), []byte("&"))
 
 	w.Header().Set("Content-Type", "application/json")
+	// Security response headers.
+	// nosniff prevents content-type sniffing that could reinterpret a JSON body
+	// as HTML/JS. no-store keeps beyond-sensitive audit data out of shared caches
+	// and browser history — it must never be persisted by intermediaries.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	_, err = w.Write(payload)
 	if err != nil {

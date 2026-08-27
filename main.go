@@ -117,6 +117,7 @@ func configuredKeystoneDriver() gopherpolicy.Validator {
 		defer cancel()
 		return must.Return(identity.NewTokenValidator(ctx))
 	case "mock":
+		logg.Error("SECURITY WARNING: hermes.keystone_driver is set to \"mock\" — all requests are authorized without real Keystone token validation. This must NEVER be used in production.")
 		return mock.NewValidator(mock.NewEnforcer(), nil)
 	default:
 		logg.Fatal("unknown keystone_driver %q", driverName)
@@ -133,6 +134,7 @@ func configuredStorageDriver() storage.Storage {
 	case "opensearch":
 		return &openSearchStorage
 	case "mock":
+		logg.Error("SECURITY WARNING: hermes.storage_driver is set to \"mock\" — events are served from static in-memory fixtures, not real OpenSearch data. This must NEVER be used in production.")
 		return mockStorage
 	default:
 		logg.Fatal("unknown storage_driver %q", driverName)

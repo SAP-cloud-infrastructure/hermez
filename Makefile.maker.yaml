@@ -21,6 +21,8 @@ golangciLint:
   createConfig: true
 
 githubWorkflow:
+  global:
+    goVersion: "1.27.0"
   ci:
     enabled: true
     ignorePaths:
