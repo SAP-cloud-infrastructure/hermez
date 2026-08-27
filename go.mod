@@ -4,8 +4,7 @@ go 1.27
 
 require (
 	github.com/databus23/goslo.policy v0.0.0-20250326134918-4afc2c56a903
-	github.com/google/uuid v1.6.0
-	github.com/gophercloud/gophercloud/v2 v2.13.0
+	github.com/gophercloud/gophercloud/v2 v2.14.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jinzhu/copier v0.4.0
 	github.com/lib/pq v1.12.3
@@ -13,7 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rs/cors v1.11.1
 	github.com/sapcc/go-api-declarations v1.25.0
-	github.com/sapcc/go-bits v0.0.0-20260818140528-75bdd20c7867
+	github.com/sapcc/go-bits v0.0.0-20260827091731-7669cbdb53fb
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
 	go.xyrillian.de/gg v1.14.0
@@ -25,7 +24,6 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
-	github.com/gofrs/uuid/v5 v5.5.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
