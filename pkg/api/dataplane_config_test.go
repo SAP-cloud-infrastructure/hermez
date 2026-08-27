@@ -8,14 +8,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"testing"
 	"time"
 
-	policy "github.com/databus23/goslo.policy"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/spf13/viper"
 
 	"github.com/sapcc/go-api-declarations/cadf"
 	"github.com/sapcc/go-bits/audittools"
@@ -93,22 +90,20 @@ func payloadAttachment(enabled bool, targetBucket string) []cadf.Attachment {
 // Returns the handler, the routing mock store, and the mock auditor for event assertions.
 func setupDataplaneTest(t *testing.T) (http.Handler, *routing.Mock, *audittools.MockAuditor) {
 	t.Helper()
+	return setupDataplaneTestForbidding(t)
+}
 
-	policyBytes, err := os.ReadFile("../test/policy.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	policyRules := make(map[string]string)
-	if err := json.Unmarshal(policyBytes, &policyRules); err != nil {
-		t.Fatal(err)
-	}
-	policyEnforcer, err := policy.NewEnforcer(policyRules)
-	if err != nil {
-		t.Fatal(err)
-	}
-	viper.Set("hermes.PolicyEnforcer", policyEnforcer)
+// setupDataplaneTestForbidding is like setupDataplaneTest but forbids the given
+// policy rules on the mock enforcer (which allows everything by default). Use it
+// to deny cluster_viewer and exercise the cross-project 403 path.
+func setupDataplaneTestForbidding(t *testing.T, forbiddenRules ...string) (http.Handler, *routing.Mock, *audittools.MockAuditor) {
+	t.Helper()
 
-	validator := mock.NewValidator(mock.NewEnforcer(), map[string]string{
+	enforcer := mock.NewEnforcer()
+	for _, rule := range forbiddenRules {
+		enforcer.Forbid(rule)
+	}
+	validator := mock.NewValidator(enforcer, map[string]string{
 		"project_id": testProjectID,
 		"user_id":    "user-abc",
 	})
@@ -326,9 +321,10 @@ func TestDataplaneConfig_DeleteNonExistent(t *testing.T) {
 }
 
 // TestDataplaneConfig_CrossProjectForbidden proves that a token scoped to
-// testProjectID cannot access a different project's config (403).
+// testProjectID that is NOT a cloud admin cannot access a different project's
+// config (403). cluster_viewer is explicitly denied here.
 func TestDataplaneConfig_CrossProjectForbidden(t *testing.T) {
-	handler, _, auditor := setupDataplaneTest(t) // token project_id = testProjectID
+	handler, _, auditor := setupDataplaneTestForbidding(t, "cluster_viewer") // deny cloud-admin bypass; token project_id = testProjectID
 
 	differentProject := "other-project-99"
 	otherPath := "/v1/projects/" + differentProject + "/dataplane-config"
@@ -361,6 +357,38 @@ func TestDataplaneConfig_CrossProjectForbidden(t *testing.T) {
 
 	// 403 happens before the handler body runs — no audit events from our code.
 	auditor.ExpectEvents(t /* none */)
+}
+
+// TestDataplaneConfig_CrossProjectCloudAdmin proves that a cloud admin
+// (cluster_viewer satisfied) CAN manage a different project's config, writing
+// to the path project. This mirrors the cross-project override in events.go.
+func TestDataplaneConfig_CrossProjectCloudAdmin(t *testing.T) {
+	handler, store, _ := setupDataplaneTestForbidding(t) // cluster_viewer allowed by default; token project_id = testProjectID
+
+	differentProject := "other-project-99"
+	otherPath := "/v1/projects/" + differentProject + "/dataplane-config"
+
+	putBody, err := json.Marshal(map[string]any{"enabled": true, "target_bucket": "hermes-audit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	putReq := httptest.NewRequest(http.MethodPut, otherPath, bytes.NewReader(putBody))
+	putReq.Header.Set("X-Auth-Token", "something")
+	putReq.Header.Set("Content-Type", "application/json")
+	putRec := httptest.NewRecorder()
+	handler.ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("cloud-admin PUT to different project: expected 200, got %d: %s", putRec.Code, putRec.Body.String())
+	}
+
+	// The config must be written under the PATH project, not the token's project.
+	cfg, err := store.Get(putReq.Context(), differentProject)
+	if err != nil {
+		t.Fatalf("expected config for %s, got error: %s", differentProject, err)
+	}
+	if !cfg.Enabled || cfg.TargetBucket != "hermes-audit" {
+		t.Errorf("unexpected saved config: %+v", cfg)
+	}
 }
 
 // TestDataplaneConfig_DisabledPutAcceptsEmptyBucket proves PUT with enabled=false

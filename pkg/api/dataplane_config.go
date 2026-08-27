@@ -223,9 +223,13 @@ func (p *v1Provider) authDataplaneConfig(res http.ResponseWriter, req *http.Requ
 		return nil, false
 	}
 
-	// Cross-project access check: path project_id must match the token scope.
+	// Cross-project access check: the path project_id must match the token
+	// scope, unless the caller is a cloud admin (cluster_viewer). This mirrors
+	// the cross-project override in events.go (getIndexID), letting operators
+	// manage dataplane config on a tenant's behalf. token.Check does not write
+	// a response, so we emit the 403 ourselves.
 	tokenProjectID := token.Context.Auth["project_id"]
-	if tokenProjectID != pathProjectID {
+	if tokenProjectID != pathProjectID && !token.Check("cluster_viewer") {
 		http.Error(res, "project_id in path does not match token scope", http.StatusForbidden)
 		return nil, false
 	}
