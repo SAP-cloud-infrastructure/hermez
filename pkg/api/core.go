@@ -128,6 +128,9 @@ func (api *V1API) AddTo(r *mux.Router) {
 	r.Methods("GET").Path("/v1/events").Handler(
 		InstrumentDuration("ListEvents")(InstrumentResponseSize("ListEvents")(http.HandlerFunc(api.listEvents))))
 
+	r.Methods("GET").Path("/v1/events/download").Handler(
+		InstrumentDuration("DownloadEvents")(InstrumentResponseSize("DownloadEvents")(http.HandlerFunc(api.downloadEvents))))
+
 	r.Methods("GET").Path("/v1/events/{event_id}").Handler(
 		InstrumentDuration("GetEventDetails")(InstrumentResponseSize("GetEventDetails")(http.HandlerFunc(api.getEventDetails))))
 
@@ -160,9 +163,13 @@ func (api *V1API) getVersion(w http.ResponseWriter, r *http.Request) {
 // listEvents handles GET /v1/events
 func (api *V1API) listEvents(w http.ResponseWriter, r *http.Request) {
 	httpapi.IdentifyEndpoint(r, "/v1/events")
-
-	// Call existing v1Provider implementation for backward compatibility
 	api.provider.ListEvents(w, r)
+}
+
+// downloadEvents handles GET /v1/events/download
+func (api *V1API) downloadEvents(w http.ResponseWriter, r *http.Request) {
+	httpapi.IdentifyEndpoint(r, "/v1/events/download")
+	api.provider.DownloadEvents(w, r)
 }
 
 // getEventDetails handles GET /v1/events/{event_id}
