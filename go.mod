@@ -12,7 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rs/cors v1.11.1
 	github.com/sapcc/go-api-declarations v1.25.0
-	github.com/sapcc/go-bits v0.0.0-20260827091731-7669cbdb53fb
+	github.com/sapcc/go-bits v0.0.0-20260903170501-70fd009916cb
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
 	go.xyrillian.de/gg v1.14.0
