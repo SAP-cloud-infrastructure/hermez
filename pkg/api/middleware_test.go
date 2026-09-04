@@ -19,7 +19,7 @@ func makeOKHandler() http.Handler {
 }
 
 func requestWithToken(token string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	if token != "" {
 		r.Header.Set("X-Auth-Token", token)
 	}
@@ -122,7 +122,7 @@ func TestRateLimitMiddleware_FallbackToRemoteAddr(t *testing.T) {
 	rl, _ := simpleRateLimitSetup(t, 1, 1, "test")
 	handler := rl.Wrap(makeOKHandler())
 
-	r1 := httptest.NewRequest(http.MethodGet, "/", nil)
+	r1 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r1.RemoteAddr = "1.2.3.4:1234"
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, r1)
@@ -130,7 +130,7 @@ func TestRateLimitMiddleware_FallbackToRemoteAddr(t *testing.T) {
 		t.Fatalf("first request: expected 200, got %d", rec1.Code)
 	}
 
-	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	r2 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r2.RemoteAddr = "1.2.3.4:1234"
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, r2)
