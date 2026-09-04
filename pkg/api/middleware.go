@@ -5,8 +5,8 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -210,7 +210,7 @@ func (rl *RateLimitMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 		if !rl.getLimiter(key).Allow() {
 			retryAfter := int(1/float64(rl.rps)) + 1
-			w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			rateLimitExceededCounter.WithLabelValues(rl.handlerLabel).Inc()
 			http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)
 			return
