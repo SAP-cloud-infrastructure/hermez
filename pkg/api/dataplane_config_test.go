@@ -112,7 +112,7 @@ func setupDataplaneTestForbidding(t *testing.T, forbiddenRules ...string) (http.
 
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
 
-	v1API := NewV1API(validator, storage.Mock{}, routingStore, mockAuditor)
+	v1API := NewV1API(validator, storage.Mock{}, routingStore, mockAuditor, nil, nil)
 	return httpapi.Compose(v1API, NewVersionAPI(v1API.VersionData()), NewMetricsAPI()), routingStore, mockAuditor
 }
 
