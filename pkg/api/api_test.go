@@ -48,7 +48,7 @@ func setupTest(t *testing.T) http.Handler {
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
 
 	// Create API compositions using httpapi
-	v1API := NewV1API(validator, storageInterface, routingStore, audittools.NewNullAuditor())
+	v1API := NewV1API(validator, storageInterface, routingStore, audittools.NewNullAuditor(), nil, nil)
 	versionAPI := NewVersionAPI(v1API.VersionData())
 	metricsAPI := NewMetricsAPI()
 
