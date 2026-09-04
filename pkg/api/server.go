@@ -23,8 +23,30 @@ import (
 func Server(ctx context.Context, validator gopherpolicy.Validator, storageInterface storage.Storage, routingStore routing.Store, auditor audittools.Auditor) error {
 	logg.Info("Starting Hermes API server")
 
+	// Build per-route rate limiters from viper config (nil when disabled).
+	defaultRL := NewRateLimitMiddleware(
+		viper.GetFloat64("API.RateLimit.RequestsPerSecond"),
+		viper.GetInt("API.RateLimit.Burst"),
+		"default",
+	)
+	downloadRL := NewRateLimitMiddleware(
+		viper.GetFloat64("API.RateLimit.DownloadRequestsPerSecond"),
+		viper.GetInt("API.RateLimit.DownloadBurst"),
+		"download",
+	)
+
+	// Start stale-limiter eviction goroutines when rate limiting is enabled.
+	evictionInterval := viper.GetDuration("API.RateLimit.EvictionInterval")
+	maxIdlePeriod := viper.GetDuration("API.RateLimit.MaxIdlePeriod")
+	if defaultRL != nil {
+		defaultRL.StartEviction(ctx, evictionInterval, maxIdlePeriod)
+	}
+	if downloadRL != nil {
+		downloadRL.StartEviction(ctx, evictionInterval, maxIdlePeriod)
+	}
+
 	// Create API compositions
-	v1API := NewV1API(validator, storageInterface, routingStore, auditor)
+	v1API := NewV1API(validator, storageInterface, routingStore, auditor, defaultRL, downloadRL)
 	versionAPI := NewVersionAPI(v1API.VersionData())
 	metricsAPI := NewMetricsAPI()
 
