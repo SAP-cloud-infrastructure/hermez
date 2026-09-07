@@ -73,6 +73,8 @@ type V1API struct {
 	auditor      audittools.Auditor
 	versionData  VersionData
 	provider     *v1Provider
+	defaultRL    *RateLimitMiddleware
+	downloadRL   *RateLimitMiddleware
 }
 
 // NewV1API creates a new V1API instance with the provided validator and storage.
@@ -81,13 +83,15 @@ type V1API struct {
 //
 //	validator := gopherpolicy.NewValidator(enforcer, logger)
 //	storage := opensearch.NewStorage(config)
-//	api := NewV1API(validator, storage, routingStore, auditor)
-func NewV1API(validator gopherpolicy.Validator, storageInterface storage.Storage, routingStore routing.Store, auditor audittools.Auditor) *V1API {
+//	api := NewV1API(validator, storage, routingStore, auditor, nil, nil)
+func NewV1API(validator gopherpolicy.Validator, storageInterface storage.Storage, routingStore routing.Store, auditor audittools.Auditor, defaultRL, downloadRL *RateLimitMiddleware) *V1API {
 	api := &V1API{
 		validator:    validator,
 		storage:      storageInterface,
 		routingStore: routingStore,
 		auditor:      auditor,
+		defaultRL:    defaultRL,
+		downloadRL:   downloadRL,
 		provider: &v1Provider{
 			validator:    validator,
 			storage:      storageInterface,
@@ -126,16 +130,16 @@ func (api *V1API) AddTo(r *mux.Router) {
 		InstrumentDuration("version")(InstrumentResponseSize("version")(http.HandlerFunc(api.getVersion))))
 
 	r.Methods("GET").Path("/v1/events").Handler(
-		InstrumentDuration("ListEvents")(InstrumentResponseSize("ListEvents")(http.HandlerFunc(api.listEvents))))
+		InstrumentDuration("ListEvents")(InstrumentResponseSize("ListEvents")(api.defaultRL.Wrap(http.HandlerFunc(api.listEvents)))))
 
 	r.Methods("GET").Path("/v1/events/download").Handler(
-		InstrumentDuration("DownloadEvents")(InstrumentResponseSize("DownloadEvents")(http.HandlerFunc(api.downloadEvents))))
+		InstrumentDuration("DownloadEvents")(InstrumentResponseSize("DownloadEvents")(api.downloadRL.Wrap(http.HandlerFunc(api.downloadEvents)))))
 
 	r.Methods("GET").Path("/v1/events/{event_id}").Handler(
-		InstrumentDuration("GetEventDetails")(InstrumentResponseSize("GetEventDetails")(http.HandlerFunc(api.getEventDetails))))
+		InstrumentDuration("GetEventDetails")(InstrumentResponseSize("GetEventDetails")(api.defaultRL.Wrap(http.HandlerFunc(api.getEventDetails)))))
 
 	r.Methods("GET").Path("/v1/attributes/{attribute_name}").Handler(
-		InstrumentDuration("GetAttributes")(InstrumentResponseSize("GetAttributes")(http.HandlerFunc(api.getAttributes))))
+		InstrumentDuration("GetAttributes")(InstrumentResponseSize("GetAttributes")(api.defaultRL.Wrap(http.HandlerFunc(api.getAttributes)))))
 
 	r.Methods("GET").Path("/v1/projects/{project_id}/dataplane-config").Handler(
 		InstrumentDuration("GetDataplaneConfig")(InstrumentResponseSize("GetDataplaneConfig")(http.HandlerFunc(api.getDataplaneConfig))))
