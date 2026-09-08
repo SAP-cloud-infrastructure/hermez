@@ -53,7 +53,7 @@ func setupTest(t *testing.T) http.Handler {
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
 
 	// Create API compositions using httpapi
-	v1API := NewV1API(validator, storageInterface, routingStore, audittools.NewNullAuditor())
+	v1API := NewV1API(validator, storageInterface, routingStore, audittools.NewNullAuditor(), nil, nil)
 	versionAPI := NewVersionAPI(v1API.VersionData())
 	metricsAPI := NewMetricsAPI()
 
@@ -374,7 +374,7 @@ func (timeoutStorage) MaxLimit() uint { return 100 }
 // so the failure must be visible to the caller.
 func TestBackendTimeout_IsNotSilentlyTruncated(t *testing.T) {
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
-	v1API := NewV1API(mock.NewValidator(mock.NewEnforcer(), nil), timeoutStorage{}, routing.NewMock(), audittools.NewNullAuditor())
+	v1API := NewV1API(mock.NewValidator(mock.NewEnforcer(), nil), timeoutStorage{}, routing.NewMock(), audittools.NewNullAuditor(), nil, nil)
 	router := httpapi.Compose(v1API, NewVersionAPI(v1API.VersionData()), NewMetricsAPI())
 
 	for _, tc := range []struct {
@@ -403,7 +403,7 @@ func setupTestWithScopeAndStorage(t *testing.T, auth map[string]string, store st
 		enforcer.Forbid(rule)
 	}
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
-	v1API := NewV1API(mock.NewValidator(enforcer, auth), store, routing.NewMock(), audittools.NewNullAuditor())
+	v1API := NewV1API(mock.NewValidator(enforcer, auth), store, routing.NewMock(), audittools.NewNullAuditor(), nil, nil)
 	return httpapi.Compose(v1API, NewVersionAPI(v1API.VersionData()), NewMetricsAPI())
 }
 

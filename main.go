@@ -76,6 +76,12 @@ func setDefaultConfig() {
 	viper.SetDefault("hermes.storage_driver", "opensearch")
 	viper.SetDefault("hermes.routing_store_driver", "postgres")
 	viper.SetDefault("API.ListenAddress", "0.0.0.0:8788")
+	viper.SetDefault("API.RateLimit.RequestsPerSecond", 0.0)
+	viper.SetDefault("API.RateLimit.Burst", 0)
+	viper.SetDefault("API.RateLimit.DownloadRequestsPerSecond", 0.0)
+	viper.SetDefault("API.RateLimit.DownloadBurst", 0)
+	viper.SetDefault("API.RateLimit.EvictionInterval", "5m")
+	viper.SetDefault("API.RateLimit.MaxIdlePeriod", "10m")
 	viper.SetDefault("opensearch.url", "http://localhost:9200")
 	viper.SetDefault("opensearch.max_result_window", "20000")
 }

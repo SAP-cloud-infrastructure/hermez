@@ -44,7 +44,7 @@ It additionally **owns a small read/write store** (`pkg/routing`, Postgres) for 
 ### Key Design Decisions
 
 - **Tenant isolation is document-level**: A single `hermes` index with a `tenant_ids` keyword array field, not per-tenant indices. The sentinel value `"*"` (storage.AllTenants) disables tenant filtering for admin queries.
-- **httpapi.Compose pattern**: Each API section (V1API, VersionAPI, MetricsAPI) implements `httpapi.API` with `AddTo(*mux.Router)`. No custom router setup.
+- **httpapi.Compose pattern**: Each API section (V1API, VersionAPI, MetricsAPI) implements `httpapi.API` with `AddTo(*httpapi.Composer)`. No custom router setup.
 - **Driver pattern for testability**: `storage.Storage` interface enables mock/real swap. Same for `gopherpolicy.Validator` (keystone/mock). Configured via TOML `hermes.storage_driver` and `hermes.keystone_driver`.
 - **ReturnESJSON**: Custom JSON response helper that un-escapes `\u0026` back to `&` for OpenSearch URL compatibility. Use this instead of `respondwith.JSON`.
 

@@ -9,5 +9,5 @@
 
   "event:list":               "rule:project_viewer or rule:domain_viewer or rule:cluster_viewer",
   "event:show":               "rule:project_viewer or rule:domain_viewer or rule:cluster_viewer",
-  "dataplane_config:manage":  "rule:project_admin"
+  "dataplane_config:manage":  "rule:project_admin or rule:cluster_viewer"
 }
