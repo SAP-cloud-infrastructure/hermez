@@ -6,7 +6,6 @@ package api
 import (
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/sapcc/go-bits/httpapi"
@@ -23,8 +22,8 @@ func NewVersionAPI(v1VersionData VersionData) *VersionAPI {
 }
 
 // AddTo implements httpapi.API interface
-func (api *VersionAPI) AddTo(r *mux.Router) {
-	r.Methods("GET").Path("/").HandlerFunc(api.listVersions)
+func (api *VersionAPI) AddTo(c *httpapi.Composer) {
+	c.Router().Methods("GET").Path("/").HandlerFunc(api.listVersions)
 }
 
 func (api *VersionAPI) listVersions(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +45,6 @@ func NewMetricsAPI() *MetricsAPI {
 }
 
 // AddTo implements httpapi.API interface
-func (api *MetricsAPI) AddTo(r *mux.Router) {
-	r.Methods("GET").Path("/metrics").Handler(promhttp.Handler())
+func (api *MetricsAPI) AddTo(c *httpapi.Composer) {
+	c.Router().Methods("GET").Path("/metrics").Handler(promhttp.Handler())
 }

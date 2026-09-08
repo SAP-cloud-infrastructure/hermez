@@ -125,7 +125,9 @@ func (api *V1API) VersionData() VersionData {
 }
 
 // AddTo implements httpapi.API interface
-func (api *V1API) AddTo(r *mux.Router) {
+func (api *V1API) AddTo(c *httpapi.Composer) {
+	r := c.Router()
+
 	r.Methods("GET").Path("/v1/").Handler(
 		InstrumentDuration("version")(InstrumentResponseSize("version")(http.HandlerFunc(api.getVersion))))
 
