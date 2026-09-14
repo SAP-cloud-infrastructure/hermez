@@ -5,6 +5,7 @@ package hermes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jinzhu/copier"
@@ -13,6 +14,12 @@ import (
 
 	"github.com/sapcc/hermes/pkg/storage"
 )
+
+// ErrWindowExceeded is returned when a request's pagination window
+// (offset+limit) exceeds the storage maximum. It is a client-input error and
+// callers should surface it as HTTP 400, not 500 — the message tells the client
+// exactly how to correct the request.
+var ErrWindowExceeded = errors.New("pagination window exceeds the maximum")
 
 // ListEvent contains high-level data about an event, intended as a list item
 //
@@ -94,9 +101,15 @@ func storageFilter(filter *EventFilter, eventStore storage.Storage) (*storage.Ev
 		filter.Limit = 10
 	}
 
-	if filter.Offset+filter.Limit > eventStore.MaxLimit() {
-		return nil, fmt.Errorf("offset %d plus limit %d exceeds the maximum of %d",
-			filter.Offset, filter.Limit, eventStore.MaxLimit())
+	// Reject requests whose window (offset+limit) exceeds the storage maximum.
+	// The subtraction form is overflow-safe: computing offset+limit directly
+	// could wrap around on a maliciously large offset and silently pass the
+	// check. maxLimit >= limit is guaranteed here because limit defaults to 10
+	// and the API layer caps it well below MaxLimit.
+	maxLimit := eventStore.MaxLimit()
+	if filter.Limit > maxLimit || filter.Offset > maxLimit-filter.Limit {
+		return nil, fmt.Errorf("%w: offset %d plus limit %d exceeds the maximum of %d",
+			ErrWindowExceeded, filter.Offset, filter.Limit, maxLimit)
 	}
 
 	var storageFieldOrder []storage.FieldOrder

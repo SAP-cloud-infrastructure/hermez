@@ -175,12 +175,10 @@ func buildBoolQuery(filter *EventFilter, tenantID string) map[string]any {
 		boolClause["filter"] = append(boolClause["filter"].([]any), map[string]any{"range": rangeQuery})
 	}
 
-	// Full-text search
+	// Full-text search.
 	if filter.Search != "" {
 		boolClause["must"] = append(boolClause["must"].([]any), map[string]any{
-			"query_string": map[string]any{
-				"query": filter.Search,
-			},
+			"query_string": map[string]any{"query": filter.Search},
 		})
 	}
 
@@ -203,6 +201,13 @@ func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenant
 	// Build the complete search body
 	searchBody := map[string]any{
 		"query": query,
+		// A query-level timeout bounds the worst-case wall-clock cost of a broad
+		// or pathological query, protecting the shared OpenSearch cluster from a
+		// single expensive request. A timeout (unlike a per-shard document cap)
+		// does not corrupt hits.total.value or truncate a legitimate deep page on
+		// a multi-shard index, so pagination stays correct. On timeout OpenSearch
+		// returns partial results with "timed_out": true rather than erroring.
+		"timeout": searchTimeout(),
 	}
 
 	// Add sorting
@@ -243,6 +248,7 @@ func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenant
 	searchResp, err := os.client().Search(ctx, &opensearchapi.SearchReq{
 		Indices: []string{index},
 		Body:    bytes.NewReader(bodyJSON),
+		Params:  opensearchapi.SearchParams{AllowPartialSearchResults: new(false)},
 	})
 
 	if err != nil {
@@ -256,6 +262,16 @@ func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenant
 	}
 
 	logg.Debug("Got %d hits", searchResp.Hits.Total.Value)
+
+	// A timed-out search returns HTTP 200 with partial hits and a DEFLATED
+	// hits.total.value. Returning that as success would silently truncate an
+	// audit page and — because api.ListEvents derives NextURL from total —
+	// suppress pagination while more events exist. Surface it as an explicit
+	// error (mapped to 504) so a partial result is never mistaken for complete.
+	if searchResultIsPartial(searchResp) {
+		logg.Error("OpenSearch query returned partial results for tenant %s; returning ErrPartialResults", tenantID)
+		return nil, 0, ErrPartialResults
+	}
 
 	// Parse events from hits
 	var events []*cadf.Event
@@ -323,6 +339,7 @@ func (os *OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*
 	searchResp, err := os.client().Search(ctx, &opensearchapi.SearchReq{
 		Indices: []string{index},
 		Body:    bytes.NewReader(bodyJSON),
+		Params:  opensearchapi.SearchParams{AllowPartialSearchResults: new(false)},
 	})
 
 	if err != nil {
@@ -332,6 +349,10 @@ func (os *OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*
 
 	total := searchResp.Hits.Total.Value
 	logg.Debug("Results: %d", total)
+	if searchResultIsPartial(searchResp) {
+		logg.Error("OpenSearch event query returned partial results for tenant %s; returning ErrPartialResults", tenantID)
+		return nil, ErrPartialResults
+	}
 
 	if total > 0 {
 		hit := searchResp.Hits.Hits[0]
@@ -347,6 +368,10 @@ func (os *OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*
 func buildGetAttributesQuery(osName string, limit uint, tenantID string) map[string]any {
 	searchBody := map[string]any{
 		"size": 0,
+		// terms aggregations over a high-cardinality field on a large index are
+		// among the most cluster-expensive queries Hermes issues. A query-level
+		// timeout bounds their worst-case cost, as on the events search path.
+		"timeout": searchTimeout(),
 		"aggs": map[string]any{
 			"attributes": map[string]any{
 				"terms": map[string]any{
@@ -389,7 +414,8 @@ func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter
 	}
 	logg.Debug("Mapped Queryname: %s --> %s", filter.QueryName, osName)
 
-	limit := min(filter.Limit, math.MaxInt32)
+	limit := min(filter.Limit, os.MaxLimit())
+	limit = min(limit, uint(math.MaxInt32))
 
 	searchBody := buildGetAttributesQuery(osName, limit, tenantID)
 
@@ -403,6 +429,7 @@ func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter
 	searchResp, err := os.client().Search(ctx, &opensearchapi.SearchReq{
 		Indices: []string{index},
 		Body:    bytes.NewReader(bodyJSON),
+		Params:  opensearchapi.SearchParams{AllowPartialSearchResults: new(false)},
 	})
 
 	if err != nil {
@@ -413,6 +440,14 @@ func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter
 			logg.Error("Unknown error occurred: %v", err)
 		}
 		return nil, err
+	}
+
+	// A timed-out aggregation returns partial buckets (fewer attribute values)
+	// with no signal in the bucket data. Surface it rather than silently
+	// returning an incomplete attribute set. See ErrPartialResults.
+	if searchResultIsPartial(searchResp) {
+		logg.Error("OpenSearch aggregation returned partial results for tenant %s; returning ErrPartialResults", tenantID)
+		return nil, ErrPartialResults
 	}
 
 	// Parse aggregations
@@ -426,7 +461,7 @@ func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter
 	}
 
 	if err := json.Unmarshal(searchResp.Aggregations, &aggResult); err != nil {
-		logg.Error("Failed to parse aggregations: %w", err)
+		logg.Error("Failed to parse aggregations: %v", err)
 		return nil, err
 	}
 
@@ -465,4 +500,23 @@ func (os *OpenSearch) MaxLimit() uint {
 		return 0
 	}
 	return uint(maxLimit)
+}
+
+// searchTimeout returns the OpenSearch query-level timeout as a duration string
+// (e.g. "60s"). It is configurable via opensearch.query_timeout (seconds) and
+// defaults to 60s. This bounds the wall-clock cost of a single query on the
+// shared cluster without corrupting result totals.
+func searchTimeout() string {
+	seconds := viper.GetInt("opensearch.query_timeout")
+	if seconds <= 0 {
+		seconds = 60
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+// searchResultIsPartial reports whether OpenSearch explicitly marks a search as
+// incomplete. A failed shard can return HTTP 200 with incomplete hits or
+// aggregation buckets, just like a timed-out search.
+func searchResultIsPartial(resp *opensearchapi.SearchResp) bool {
+	return resp.Timeout || resp.Shards.Failed > 0
 }

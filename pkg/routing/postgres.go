@@ -54,11 +54,19 @@ type Postgres struct {
 //	HERMES_PG_DBNAME   (default: hermes)
 //	HERMES_PG_CONNECTION_OPTIONS
 func NewPostgres(ctx context.Context) (*Postgres, error) {
+	password := osext.GetenvOrDefault("HERMES_PG_PASSWORD", "")
+	if password == "" {
+		// A passwordless connection is legitimate for local development (trust
+		// auth) but is a misconfiguration in production. Warn loudly rather than
+		// fail, so the dev/mock path keeps working while an accidental
+		// production deployment is surfaced in the logs.
+		logg.Error("SECURITY WARNING: HERMES_PG_PASSWORD is empty — connecting to postgres without a password. This is only safe for local trust-auth development.")
+	}
 	target := pgruntime.ConnectionTarget{
 		HostName:          osext.GetenvOrDefault("HERMES_PG_HOSTNAME", "localhost"),
 		Port:              osext.GetenvOrDefault("HERMES_PG_PORT", "5432"),
 		UserName:          osext.GetenvOrDefault("HERMES_PG_USERNAME", "hermes"),
-		Password:          osext.GetenvOrDefault("HERMES_PG_PASSWORD", ""),
+		Password:          password,
 		ConnectionOptions: osext.GetenvOrDefault("HERMES_PG_CONNECTION_OPTIONS", ""),
 		DatabaseName:      osext.GetenvOrDefault("HERMES_PG_DBNAME", "hermes"),
 		ApplicationName:   bininfo.Component(),
