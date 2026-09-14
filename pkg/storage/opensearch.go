@@ -201,6 +201,10 @@ func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenant
 	// Build the complete search body
 	searchBody := map[string]any{
 		"query": query,
+		// track_total_hits disables OpenSearch's default 10000 cap on
+		// hits.total.value, which otherwise silently truncates pagination and
+		// downloads on the shared single-tenant index where result sets exceed 10k.
+		"track_total_hits": true,
 		// A query-level timeout bounds the worst-case wall-clock cost of a broad
 		// or pathological query, protecting the shared OpenSearch cluster from a
 		// single expensive request. A timeout (unlike a per-shard document cap)
