@@ -112,6 +112,7 @@ Related Projects:
 - Cronus Email Service
 - Clavis Certificate Management Service
 - Persephone Kubernetes-as-a-Service
+- Portunus Hardware Security Module Service (HSMaaS)
 
 </details>
 </br>
