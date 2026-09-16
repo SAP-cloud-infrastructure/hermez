@@ -53,7 +53,11 @@ The digest chain lets you detect any tampering or deletion after the fact. See [
 
 ### Prerequisites
 
-- You need the `audit_admin` role in the project you want to enable.
+- You need the **`audit_admin`** role, scoped to the project you want to enable. This satisfies the `dataplane_config:manage` policy (which resolves to the `project_admin` rule, defined as `project_scope and role:audit_admin`). Cloud administrators can manage any project's configuration without this role. To grant it (requires cloud admin):
+
+  ```sh
+  openstack role add --user <username> --project <project-id> audit_admin
+  ```
 - You need an object storage bucket (Ceph Swift or S3) in your project to receive events. You can create one yourself (recommended — you keep ownership) or let the service create it on first flush.
 
 ### Step 1 — Create your object storage bucket
@@ -86,19 +90,31 @@ curl -si -X PUT \
 
 </details>
 
-### Step 2 — Enable dataplane routing via hermescli
+### Step 2 — Enable dataplane routing with hermescli
+
+Use [hermescli](https://github.com/sapcc/hermescli) to manage your project's dataplane configuration. Enable routing with the `dataplane-config set` command, passing your bucket name. For the full command reference, flags, and examples, see the [hermescli Dataplane Config documentation](https://github.com/sapcc/hermescli#dataplane-config).
+
+<details>
+<summary>Alternative: enable via the REST API directly</summary>
+
+hermescli is a thin wrapper over a single Hermez endpoint. If you cannot install it, call the endpoint directly:
 
 ```bash
-hermescli dataplane enable \
-  --project-id <your-openstack-project-id> \
-  --bucket $BUCKET_NAME
+curl -si -X PUT \
+  -H "X-Auth-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "target_bucket": "'"$BUCKET_NAME"'"}' \
+  "https://<hermez-host>/v1/projects/<your-openstack-project-id>/dataplane-config"
+# Expected: HTTP/1.1 200 OK, returning the saved configuration
 ```
 
-> **Note:** hermescli dataplane commands require hermescli v0.x or later. If the command is not available, contact your operator to enable the tenant directly.
+The path `project_id` must match your token's project scope (unless you are a cloud administrator). The bucket name must be 3–63 characters, lowercase letters, digits and hyphens, start and end with an alphanumeric character, and contain no consecutive hyphens.
+
+</details>
 
 ### Step 3 — Wait for the config cache to expire
 
-Log Router caches tenant configuration for up to 5 minutes. After that window, incoming events start routing to your bucket. You can monitor progress via the Hermez operator dashboard or by checking your bucket after ~10 minutes.
+Log Router caches tenant configuration with a configurable TTL (up to 5 minutes by default; as low as 30 seconds in some regions). After that window, incoming events start routing to your bucket. You can monitor progress via the Hermez operator dashboard or by checking your bucket after ~10 minutes.
 
 ### Step 4 — Verify objects are arriving
 
@@ -181,11 +197,7 @@ Events are stored in NDJSON format (one JSON object per line) in the `S0.json` d
 
 ## Disabling dataplane events
 
-To stop routing events to your bucket:
-
-```bash
-hermescli dataplane disable --project-id <your-openstack-project-id>
-```
+To stop routing events to your bucket, use hermescli to either disable the configuration (`dataplane-config set` with routing turned off, keeping the stored bucket name) or delete it entirely (`dataplane-config delete`). See the [hermescli Dataplane Config documentation](https://github.com/sapcc/hermescli#dataplane-config) for the exact commands.
 
 Events that arrived before disabling are not deleted from your bucket. The config cache takes up to 5 minutes to propagate, after which new events stop being routed.
 
