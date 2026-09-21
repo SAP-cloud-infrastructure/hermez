@@ -6,6 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # Dataplane Audit Events
 
+> **⚠️ Limited availability.** Dataplane audit events are currently enabled in a limited set of regions and are being rolled out incrementally. If the steps below do not work in your region, the feature is not yet enabled there — contact your operator before proceeding.
+
 In addition to the management-plane audit events already available through Hermez, you can opt in to **dataplane audit events** — records of operations performed directly against data services such as Ceph object storage (Swift/S3).
 
 ## Control-plane vs. dataplane events
@@ -58,41 +60,11 @@ The digest chain lets you detect any tampering or deletion after the fact. See [
   ```sh
   openstack role add --user <username> --project <project-id> audit_admin
   ```
-- You need an object storage bucket (Ceph Swift or S3) in your project to receive events. You can create one yourself (recommended — you keep ownership) or let the service create it on first flush.
+- A destination bucket to receive events. **Do not create this bucket yourself** — it is provisioned for you as `hermes-audit` when routing is enabled, with Object Lock and versioning so the audit trail is tamper-evident.
 
-### Step 1 — Create your object storage bucket
+### Step 1 — Enable dataplane routing with hermescli
 
-**Via the Elektra dashboard (recommended):**
-
-1. Open the [Elektra](https://dashboard.cloud.sap) dashboard and navigate to your project.
-2. Go to **Object Storage** → **Containers** (Swift) or **Object Storage** → **Buckets** (S3/Ceph).
-3. Click **Create Container** / **Create Bucket** and give it a name (e.g. `my-audit-events`).
-4. Note down the bucket name — you will need it in the next step.
-
-<details>
-<summary>Alternative: create via CLI</summary>
-
-```bash
-# Ceph Swift
-SWIFT_URL=$(openstack catalog show object-store-ceph -f json | python3 -c "
-import sys, json
-for e in json.load(sys.stdin)['endpoints']:
-    if e['interface'] == 'public': print(e['url']); break
-")
-TOKEN=$(openstack token issue -f value -c id)
-BUCKET_NAME=my-audit-events
-
-curl -si -X PUT \
-  -H "X-Auth-Token: $TOKEN" \
-  "$SWIFT_URL/$BUCKET_NAME"
-# Expected: HTTP/1.1 201 Created
-```
-
-</details>
-
-### Step 2 — Enable dataplane routing with hermescli
-
-Use [hermescli](https://github.com/sapcc/hermescli) to manage your project's dataplane configuration. Enable routing with the `dataplane-config set` command, passing your bucket name. For the full command reference, flags, and examples, see the [hermescli Dataplane Config documentation](https://github.com/sapcc/hermescli#dataplane-config).
+Use [hermescli](https://github.com/sapcc/hermescli) to manage your project's dataplane configuration. Enable routing with the `dataplane-config set` command. For the full command reference and examples, see the [hermescli Dataplane Config documentation](https://github.com/sapcc/hermescli#dataplane-config).
 
 <details>
 <summary>Alternative: enable via the REST API directly</summary>
@@ -103,20 +75,20 @@ hermescli is a thin wrapper over a single Hermez endpoint. If you cannot install
 curl -si -X PUT \
   -H "X-Auth-Token: $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"enabled": true, "target_bucket": "'"$BUCKET_NAME"'"}' \
+  -d '{"enabled": true}' \
   "https://<hermez-host>/v1/projects/<your-openstack-project-id>/dataplane-config"
 # Expected: HTTP/1.1 200 OK, returning the saved configuration
 ```
 
-The path `project_id` must match your token's project scope (unless you are a cloud administrator). The bucket name must be 3–63 characters, lowercase letters, digits and hyphens, start and end with an alphanumeric character, and contain no consecutive hyphens.
+The path `project_id` must match your token's project scope (unless you are a cloud administrator). Events are delivered to the `hermes-audit` bucket, which is provisioned for you.
 
 </details>
 
-### Step 3 — Wait for the config cache to expire
+### Step 2 — Wait for the config cache to expire
 
 Log Router caches tenant configuration with a configurable TTL (up to 5 minutes by default; as low as 30 seconds in some regions). After that window, incoming events start routing to your bucket. You can monitor progress via the Hermez operator dashboard or by checking your bucket after ~10 minutes.
 
-### Step 4 — Verify objects are arriving
+### Step 3 — Verify objects are arriving
 
 **Via the Elektra dashboard:**
 
@@ -128,6 +100,14 @@ Log Router caches tenant configuration with a configurable TTL (up to 5 minutes 
 <summary>Alternative: verify via CLI</summary>
 
 ```bash
+SWIFT_URL=$(openstack catalog show object-store-ceph -f json | python3 -c "
+import sys, json
+for e in json.load(sys.stdin)['endpoints']:
+    if e['interface'] == 'public': print(e['url']); break
+")
+TOKEN=$(openstack token issue -f value -c id)
+BUCKET_NAME=hermes-audit
+
 curl -sf \
   -H "X-Auth-Token: $TOKEN" \
   "$SWIFT_URL/$BUCKET_NAME?prefix=events/_Default/&format=json" \
@@ -197,7 +177,7 @@ Events are stored in NDJSON format (one JSON object per line) in the `S0.json` d
 
 ## Disabling dataplane events
 
-To stop routing events to your bucket, use hermescli to either disable the configuration (`dataplane-config set` with routing turned off, keeping the stored bucket name) or delete it entirely (`dataplane-config delete`). See the [hermescli Dataplane Config documentation](https://github.com/sapcc/hermescli#dataplane-config) for the exact commands.
+To stop routing events to your bucket, use hermescli to either disable the configuration (`dataplane-config set` with routing turned off) or delete it entirely (`dataplane-config delete`). See the [hermescli Dataplane Config documentation](https://github.com/sapcc/hermescli#dataplane-config) for the exact commands.
 
 Events that arrived before disabling are not deleted from your bucket. The config cache takes up to 5 minutes to propagate, after which new events stop being routed.
 
