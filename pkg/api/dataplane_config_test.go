@@ -203,19 +203,26 @@ func TestDataplaneConfig_PutAndGet(t *testing.T) {
 	}
 }
 
-// TestDataplaneConfig_PutEnabledMissingBucket proves PUT with enabled=true and no target_bucket → 400.
-// A failure audit event must still be emitted.
+// TestDataplaneConfig_PutEnabledMissingBucket proves PUT with enabled=true and
+// no target_bucket defaults to "hermes-audit" and succeeds.
 func TestDataplaneConfig_PutEnabledMissingBucket(t *testing.T) {
 	handler, _, auditor := setupDataplaneTest(t)
 	rec := putJSON(t, handler, map[string]any{
 		"enabled": true,
 	})
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp routing.DataplaneConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response is not valid JSON: %s", err)
+	}
+	if resp.TargetBucket != "hermes-audit" {
+		t.Errorf("target_bucket: want %q, got %q", "hermes-audit", resp.TargetBucket)
 	}
 	auditor.ExpectEvents(t, updateEvent(
-		http.StatusBadRequest,
-		dataplaneTarget(payloadAttachment(false, "")),
+		http.StatusOK,
+		dataplaneTarget(payloadAttachment(true, "hermes-audit")),
 	))
 }
 
