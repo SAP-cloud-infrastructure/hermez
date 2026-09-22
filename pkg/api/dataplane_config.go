@@ -128,11 +128,9 @@ func (p *v1Provider) PutDataplaneConfig(res http.ResponseWriter, req *http.Reque
 		}
 	}
 
-	// When enabled, a non-empty bucket is required.
+	// Default to the well-known bucket name when the client omits it.
 	if body.Enabled && body.TargetBucket == "" {
-		http.Error(res, "target_bucket is required when enabled is true", http.StatusBadRequest)
-		recordAttempt(http.StatusBadRequest, nil)
-		return
+		body.TargetBucket = "hermes-audit"
 	}
 
 	cfg := routing.DataplaneConfig{
