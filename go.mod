@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/databus23/goslo.policy v0.0.0-20250326134918-4afc2c56a903
-	github.com/gophercloud/gophercloud/v2 v2.14.0
+	github.com/gophercloud/gophercloud/v2 v2.15.0
 	github.com/gorilla/mux v1.8.1
 	github.com/jinzhu/copier v0.4.0
 	github.com/lib/pq v1.12.3
@@ -12,11 +12,11 @@ require (
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rs/cors v1.11.1
 	github.com/sapcc/go-api-declarations v1.25.1
-	github.com/sapcc/go-bits v0.0.0-20260917095256-d8aaf2d73069
+	github.com/sapcc/go-bits v0.0.0-20260924170438-e0aa5c665ed9
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.12.1
-	go.xyrillian.de/gg v1.15.0
-	golang.org/x/time v0.15.0
+	go.xyrillian.de/gg v1.16.0
+	golang.org/x/time v0.16.0
 )
 
 require (
@@ -39,8 +39,8 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
