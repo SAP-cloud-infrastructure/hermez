@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"github.com/sapcc/go-api-declarations/cadf"
 	"github.com/sapcc/go-bits/errext"
 	"github.com/sapcc/go-bits/logg"
