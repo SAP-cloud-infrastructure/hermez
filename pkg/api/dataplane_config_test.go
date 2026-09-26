@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -412,4 +413,51 @@ func TestDataplaneConfig_DisabledPutAcceptsEmptyBucket(t *testing.T) {
 		http.StatusOK,
 		dataplaneTarget(payloadAttachment(false, "")),
 	))
+}
+
+// TestDataplaneConfig_PutRejectsNullAndTrailingData proves that a null body or
+// data after the JSON object gets a 400 and leaves the stored config alone.
+// Before, `null` stored enabled=false and a second object was ignored.
+func TestDataplaneConfig_PutRejectsNullAndTrailingData(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{"Null", `null`, http.StatusBadRequest},
+		{"NullWithWhitespace", " null\n", http.StatusBadRequest},
+		{"SecondObject", `{"enabled":true}{"enabled":false}`, http.StatusBadRequest},
+		{"TrailingGarbage", `{"enabled":true} garbage`, http.StatusBadRequest},
+		{"TrailingNewline", "{\"enabled\":false}\n", http.StatusOK},
+		{"EmptyObjectStillAllowed", `{}`, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, routingStore, _ := setupDataplaneTest(t)
+			if err := routingStore.Upsert(t.Context(), routing.DataplaneConfig{
+				ProjectID:    testProjectID,
+				Enabled:      true,
+				TargetBucket: "my-audit-bucket",
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodPut, dataplaneConfigPath, strings.NewReader(tc.body))
+			req.Header.Set("X-Auth-Token", "something")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body: %s", rec.Code, tc.wantCode, rec.Body.String())
+			}
+
+			cfg, err := routingStore.Get(t.Context(), testProjectID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantEnabled := tc.wantCode != http.StatusOK // a rejected PUT must not change the stored config
+			if cfg.Enabled != wantEnabled {
+				t.Errorf("stored enabled = %v, want %v", cfg.Enabled, wantEnabled)
+			}
+		})
+	}
 }

@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -103,11 +104,25 @@ func (p *v1Provider) PutDataplaneConfig(res http.ResponseWriter, req *http.Reque
 	// Body size cap: 64 KiB
 	req.Body = http.MaxBytesReader(res, req.Body, 64*1024)
 
+	// Decode into a pointer so that a literal `null` body is detectable: it
+	// would otherwise decode to the zero value and silently disable routing.
+	// The body must also hold exactly one JSON value; anything after it
+	// (a second object, stray text) is rejected instead of ignored.
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()
-	var body dataplaneConfigRequest
+	var body *dataplaneConfigRequest
 	if err := decoder.Decode(&body); err != nil {
 		http.Error(res, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		recordAttempt(http.StatusBadRequest, nil)
+		return
+	}
+	if body == nil {
+		http.Error(res, "invalid request body: must be a JSON object", http.StatusBadRequest)
+		recordAttempt(http.StatusBadRequest, nil)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		http.Error(res, "invalid request body: unexpected data after the JSON object", http.StatusBadRequest)
 		recordAttempt(http.StatusBadRequest, nil)
 		return
 	}
