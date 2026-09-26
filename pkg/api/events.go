@@ -491,10 +491,11 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		storageErrorsCounter.Add(1)
 		return
 	}
+	// A known attribute without any values (e.g. a project with no events yet)
+	// is an empty list, not a missing resource. Unknown names were already
+	// rejected above with ErrUnknownAttributeName.
 	if attribute == nil {
-		err := fmt.Errorf("attribute %s could not be found in project %s", queryName, indexID)
-		http.Error(res, err.Error(), http.StatusNotFound)
-		return
+		attribute = []string{}
 	}
 	ReturnESJSON(res, http.StatusOK, attribute)
 }

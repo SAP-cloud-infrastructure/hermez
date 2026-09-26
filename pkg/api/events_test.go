@@ -304,3 +304,16 @@ func TestGetAttributes_RejectsInvalidNumbers(t *testing.T) {
 		})
 	}
 }
+
+func TestGetAttributes_NoValuesIsEmptyList(t *testing.T) {
+	// fakeEventStore returns a nil slice when it has no attributes, like the
+	// OpenSearch driver does for an aggregation without buckets.
+	router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, &fakeEventStore{maxLimit: 100})
+	rec := doGet(t, router, "/v1/attributes/action")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Errorf("body = %q, want []", got)
+	}
+}
