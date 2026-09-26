@@ -25,7 +25,7 @@ type DataplaneConfig struct {
 }
 
 // DefaultDataplaneConfig returns the default (disabled) config for a project
-// that has no stored configuration. Callers should set ProjectID on the result.
+// that has no stored configuration.
 func DefaultDataplaneConfig(projectID string) DataplaneConfig {
 	return DataplaneConfig{
 		ProjectID: projectID,
