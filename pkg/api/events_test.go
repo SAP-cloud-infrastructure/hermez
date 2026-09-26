@@ -221,8 +221,8 @@ func TestListEvents_SortTopicsReachStorage(t *testing.T) {
 				t.Fatalf("storage called %d times, want 1", len(filters))
 			}
 			var got []string
-			for _, fo := range filters[0].Sort {
-				got = append(got, fo.Fieldname)
+			for _, order := range filters[0].Sort {
+				got = append(got, order.Fieldname)
 			}
 			if !slices.Equal(got, tc.wantField) {
 				t.Errorf("sort fields = %v, want %v", got, tc.wantField)
