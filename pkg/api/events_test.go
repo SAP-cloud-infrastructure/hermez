@@ -245,3 +245,39 @@ func TestSortTopicsHaveStorageFields(t *testing.T) {
 		}
 	}
 }
+
+func TestListEvents_LegacyFilterNames(t *testing.T) {
+	type fields struct{ observerType, targetType, initiatorID, action string }
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  fields
+	}{
+		{"CurrentOnly", "observer_type=service/compute&target_type=compute/server&initiator_id=u1&action=create",
+			fields{"service/compute", "compute/server", "u1", "create"}},
+		{"LegacyOnly", "source=service/compute&resource_type=compute/server&user_name=u1&event_type=create",
+			fields{"service/compute", "compute/server", "u1", "create"}},
+		{"BothSameValue", "observer_type=service/compute&source=service/compute&action=create&event_type=create",
+			fields{"service/compute", "", "", "create"}},
+		{"BothDifferentCurrentWins", "target_type=compute/server&resource_type=network/port&initiator_id=u1&user_name=u2",
+			fields{"", "compute/server", "u1", ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeEventStore(1, 100)
+			router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
+			rec := doGet(t, router, "/v1/events?"+tc.query)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+			}
+			filters := store.receivedFilters()
+			if len(filters) != 1 {
+				t.Fatalf("storage called %d times, want 1", len(filters))
+			}
+			f := filters[0]
+			got := fields{f.ObserverType, f.TargetType, f.InitiatorID, f.Action}
+			if got != tc.want {
+				t.Errorf("filter = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}

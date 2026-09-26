@@ -4,6 +4,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -193,14 +194,16 @@ func searchTooLong(res http.ResponseWriter, req *http.Request) bool {
 // sortSpec and timeRange should come from parseSortParam/parseTimeParam.
 // offset and limit are caller-supplied (differ between List and Download).
 func buildEventFilter(req *http.Request, sortSpec []hermes.FieldOrder, timeRange map[string]string, offset, limit uint) hermes.EventFilter {
+	// The legacy parameter names (source, resource_type, user_name,
+	// event_type) are only used when the current name is not given.
 	return hermes.EventFilter{
-		ObserverType:  req.FormValue("observer_type") + req.FormValue("source"),
-		TargetType:    req.FormValue("target_type") + req.FormValue("resource_type"),
+		ObserverType:  cmp.Or(req.FormValue("observer_type"), req.FormValue("source")),
+		TargetType:    cmp.Or(req.FormValue("target_type"), req.FormValue("resource_type")),
 		TargetID:      req.FormValue("target_id"),
-		InitiatorID:   req.FormValue("initiator_id") + req.FormValue("user_name"),
+		InitiatorID:   cmp.Or(req.FormValue("initiator_id"), req.FormValue("user_name")),
 		InitiatorType: req.FormValue("initiator_type"),
 		InitiatorName: req.FormValue("initiator_name"),
-		Action:        req.FormValue("action") + req.FormValue("event_type"),
+		Action:        cmp.Or(req.FormValue("action"), req.FormValue("event_type")),
 		Outcome:       req.FormValue("outcome"),
 		Search:        req.FormValue("search"),
 		RequestPath:   req.FormValue("request_path"),
