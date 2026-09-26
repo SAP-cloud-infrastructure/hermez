@@ -220,3 +220,25 @@ func TestRateLimitMiddleware_PrometheusCounter(t *testing.T) {
 		t.Fatalf("expected at least 1 rejection, counter=%v", got)
 	}
 }
+
+// TestRegisteredMetricNames checks the counters registered at package init.
+// hermes_logon_* were exported but never incremented, so they are gone; the
+// storage error counter keeps its existing name for dashboards.
+func TestRegisteredMetricNames(t *testing.T) {
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make(map[string]bool)
+	for _, mf := range families {
+		names[mf.GetName()] = true
+	}
+	for _, gone := range []string{"hermes_logon_errors_count", "hermes_logon_failures_count"} {
+		if names[gone] {
+			t.Errorf("metric %s is still registered", gone)
+		}
+	}
+	if !names["hermes_storage_errors_count"] {
+		t.Error("metric hermes_storage_errors_count is not registered")
+	}
+}

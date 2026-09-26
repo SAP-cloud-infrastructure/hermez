@@ -17,14 +17,6 @@ import (
 
 // Prometheus metrics counters
 var (
-	authErrorsCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "hermes_logon_errors_count",
-		Help: "Number of logon errors occurred",
-	})
-	authFailuresCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "hermes_logon_failures_count",
-		Help: "Number of logon attempts failed due to wrong credentials",
-	})
 	storageErrorsCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "hermes_storage_errors_count",
 		Help: "Number of technical errors occurred when accessing underlying storage (i.e. OpenSearch)",
@@ -47,7 +39,7 @@ type handlerMetricSet struct {
 }
 
 func init() {
-	prometheus.MustRegister(authErrorsCounter, authFailuresCounter, storageErrorsCounter, rateLimitExceededCounter)
+	prometheus.MustRegister(storageErrorsCounter, rateLimitExceededCounter)
 }
 
 // InstrumentInflight wraps a handler with inflight request metrics
