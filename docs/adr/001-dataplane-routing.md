@@ -4,355 +4,209 @@ SPDX-FileCopyrightText: 2026 SAP SE or an SAP affiliate company
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# ADR-001: Dataplane audit-event routing — hermez owns the config plane
+# ADR-001: Dataplane audit-event routing, hermez owns the config
 
-- **Status:** Accepted (shipped 2026-06-25, hermez PR #352 · log-router PR #24 · helm-charts PR #12097)
-- **Date:** 2026-06-29
-- **Author:** Nathan Oyler
-- **Supersedes:** ADR-001 through ADR-007 (draft series, 2026-05-19 → 2026-06-25)
+> Earlier versions of this ADR were out of date in several places (rollback, object paths, outage behaviour, migration library). Do not use them for decisions.
 
----
+| | |
+|---|---|
+| Status | Accepted, shipped |
+| Re-checked | 2026-09-26 against hermez master (6b12f7b) and log-router main (a20013b) |
+| Author | Nathan Oyler |
+| Reader contract | [../dataplane-config-read-contract.md](../dataplane-config-read-contract.md) |
 
-## Problem
+Everything below describes the code at those two commits. Items that could not be checked in code are listed at the end under "Not verified from code".
 
-OpenStack audit events flow through RabbitMQ into log-router, which writes them
-to a shared admin S3/Swift bucket (`ccadmin/master`). There was no way for
-project owners to receive a copy of their own audit events in a bucket they
-control.
+## Context
 
-The solution is per-project opt-in routing: a project owner enables the feature
-and names a target bucket; log-router then writes events to both the admin path
-and the project's own bucket.
+log-router consumes CADF audit events and writes every event to an admin container. Project owners had no way to get a copy of their own events into storage they control.
 
-This ADR records every decision made to ship that feature, including who owns
-what, the exact data model, the API surface, the authorization model, how
-log-router reads the config, the postgres access model, and how it deploys.
+The feature adds a per-project opt-in. When a project is enabled, log-router writes a second copy of that project's events into a container in the project's own object-storage account.
 
----
+## Decision
 
-## Architecture
+### 1. hermez stores the config, log-router reads it with SQL
 
-```
-Ceph radosgw / Nova / Neutron / ...
-    │ CADF events (oslo.messaging)
-    ▼
-RabbitMQ  ──────────────────────────────────────────────────────────────────
-    │ dataplane.audit queue                                                 │
-    ▼                                                                       │ notifications.info queue
-log-router (StatefulSet, 2 replicas)                               logstash (3 pods)
-    │   reads dataplane_config from hermez postgres (SELECT only)          │
-    │   writes to Swift/Ceph RGW via Keystone token (OS_* env vars)        │
-    │                                                                       ▼
-    ├──→ hermes-audit / events/_admin/_Default/.../ANN_0.json    OpenSearch (hermes index)
-    └──→ <target_bucket> / events/<project>/.../ANN_0.json               │
-         (when enabled=true for that project)                              ▼
-                                                                    hermez API (/v1/events)
-```
+- hermez owns the `dataplane_config` table, its migration, the REST API that writes it, and the CADF events for changes.
+- log-router reads the table directly over Postgres. It has no HTTP client for hermez. Its only HTTP routes are `/metrics`, `/v1/signing-key` and a health check.
+- log-router never writes `dataplane_config`. It does write `metering_records` over the same database connection (see section 6).
 
-Config plane:
-```
-operator / project owner
-    │ PUT /v1/projects/{project_id}/dataplane-config  (audit_admin role required)
-    ▼
-hermez-api  ──→  hermez postgres  (dataplane_config table)
-                      │
-                      └──→  log-router reads on each routing decision (SELECT, TTL-cached)
-```
+### 2. Data model
 
----
-
-## Decision 1: Hermez owns the config plane
-
-Hermez is the source of truth for per-project routing config. The schema,
-migrations, CRUD API, and CADF audit events for config changes all live in
-this repository.
-
-Log-router is a **read-only consumer**. It never writes to the hermez database.
-
-**Why hermez, not log-router:**
-- Log-router is a high-throughput writer optimized for data-plane throughput.
-  Bundling a tenant CRUD API in a writer creates two release cadences in one binary.
-- Hermez is already the tenant-facing API for audit reads. Config is a
-  write-side companion to the same domain — one URL, one auth model, one doc.
-- Limes precedent: in SAP CC, the service that serves the read API owns the
-  config for what gets read. Hermez plays the same role for audit routing that
-  Limes plays for quota.
-
----
-
-## Decision 2: Data model — one table, five columns
+One table, created by hermez migration version 1:
 
 ```sql
-CREATE TABLE dataplane_config (
-    project_id    VARCHAR(64)  PRIMARY KEY,
-    enabled       BOOLEAN      NOT NULL DEFAULT FALSE,
-    target_bucket TEXT         NOT NULL DEFAULT '',
-    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_by    VARCHAR(64)  NOT NULL DEFAULT ''
+CREATE TABLE IF NOT EXISTS dataplane_config (
+    project_id    VARCHAR(64) PRIMARY KEY,
+    enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
+    target_bucket TEXT        NOT NULL DEFAULT '',
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by    VARCHAR(64) NOT NULL DEFAULT ''
 );
-```
-
-- `project_id` — Keystone project UUID from the URL path (never the token body)
-- `enabled` — kill switch; `false` = route to admin path only
-- `target_bucket` — Ceph/S3 bucket name; required when `enabled=true`; validated at write time
-- `updated_at` — server-stamped on every PUT; client value ignored
-- `updated_by` — Keystone user UUID from the token at write time
-
-**What was deliberately omitted from go-live:**
-- Rate limits, retention days, grace minutes — deferred; no enforcement existed
-- CEL filter expressions — deferred; no evaluator in log-router yet
-- Multiple sinks per project — deferred; bucket fan-out is a future ADR
-- Config change history table — CADF events on PUT/DELETE are the audit trail
-- `container_format` field — hardcoded to `"hermes"` server-side; Ceph dislikes
-  underscores in account names, so `_Default` was replaced; eliminating the
-  field removes a decision surface from customers
-
-**Storage backend: PostgreSQL via easypg, not OpenSearch**
-
-Config writes are transactional; OpenSearch's 1-second refresh lag means a
-PUT followed immediately by GET could return stale state. The Helm chart already
-provisions a `postgresql-ng` instance. Config is a relational concern, not a
-search concern.
-
-Library stack: `database/sql` + `lib/pq` + `go-bits/easypg` (connection +
-golang-migrate-based migrations with `pg_advisory_lock` serialization).
-
-Env vars consumed by hermez at startup:
-```
-HERMES_PG_HOSTNAME        (default: localhost)
-HERMES_PG_PORT            (default: 5432)
-HERMES_PG_USERNAME        (default: hermes)
-HERMES_PG_PASSWORD
-HERMES_PG_DBNAME          (default: hermes)
-HERMES_PG_CONNECTION_OPTIONS
-```
-
-Config key in `hermes.conf`:
-```toml
-[hermes]
-routing_store_driver = "postgres"   # or "mock" for tests
-```
-
----
-
-## Decision 3: API surface — three endpoints
-
-All under `/v1/projects/{project_id}/dataplane-config`.
-
-| Method | Status codes | Description |
-|--------|-------------|-------------|
-| GET    | 200 | Returns config if it exists; returns `{enabled:false}` default if not. Never 404. |
-| PUT    | 200, 400, 403, 415 | Idempotent create-or-replace. Strict JSON (unknown fields → 400). |
-| DELETE | 204, 403 | Idempotent remove. Deleting non-existent config → 204. |
-
-**PUT validation:**
-- `Content-Type: application/json` required (else 415)
-- Body capped at 64 KiB
-- `target_bucket` required when `enabled=true`
-- Bucket name must match `^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$` (RFC-1123 subset, S3 rules)
-- No consecutive hyphens (`--`) in bucket name
-- Unknown JSON fields rejected
-
-**Package layout:**
-```
-pkg/routing/
-  interface.go   — Store interface + ErrNotFound
-  types.go       — DataplaneConfig struct + DefaultDataplaneConfig()
-  postgres.go    — Postgres implementation + embedded DBMigrations map
-  mock.go        — In-memory mock for tests
-pkg/api/
-  dataplane_config.go       — GET/PUT/DELETE handlers
-  dataplane_config_test.go  — handler-level tests
-```
-
----
-
-## Decision 4: Authorization
-
-Policy rule:
-```json
-"project_admin":             "rule:project_scope and role:audit_admin",
-"dataplane_config:manage":   "rule:project_admin"
-```
-
-- The caller must have the `audit_admin` Keystone role on the **project matching the URL path**.
-- The token's `project_id` must equal the path `project_id`. Cross-project access → 403. This is enforced in the handler (`authDataplaneConfig`), not the policy file.
-- The `audit_admin` role is seeded by the hermes Helm chart's `keystone-seed.yaml` when `logRouter.enabled: true`. Operators assign it to project users who should be able to toggle routing.
-
----
-
-## Decision 5: Log-router reads hermez postgres directly (no HTTP)
-
-Log-router reads `dataplane_config` with a single parameterized SELECT.
-It does NOT call the hermez REST API.
-
-**Why direct SQL, not HTTP:**
-
-| Alternative | Reason rejected |
-|-------------|----------------|
-| HTTP GET `/v1/projects/:id/dataplane-config` | Hermez-api must be healthy for log-router to route. Creates a circular dependency: log-router fails if hermez is down, even though postgres is fine. |
-| RabbitMQ control-plane topic | New infra dep for a problem TTL already handles |
-| Postgres LISTEN/NOTIFY | Optimization; deferred. Revisit if 5-min propagation is user-visible. |
-
-Direct SQL: log-router connects to the same postgres database as hermez using
-a separate `log-router` user with SELECT-only access. If postgres is down, both
-services fail together — which is honest. If hermez-api is down, log-router
-continues routing normally.
-
-**Read query:**
-```sql
-SELECT project_id, enabled, target_bucket
-FROM dataplane_config
-WHERE project_id = $1;
-```
-
-Interpretation:
-- Zero rows → treat as disabled. Not an error. Route to admin path only.
-- Row with `enabled=false` → same. Route to admin path only.
-- Row with `enabled=true` → route to both admin path and `target_bucket`.
-
-The ccadmin/master admin path is unconditional — it does not consult this config
-and is never affected by a postgres outage.
-
-**Caching:**
-
-Log-router caches per-project results with a configurable TTL:
-```
-LOG_ROUTER_CACHE_TTL   (default: 5m)
-```
-
-Lazily populated on first `GetConfig` call per tenant. Stale entries re-query
-on next access after TTL. Set to `30s` in qa-de-1 for faster validation.
-
-**Failure modes:**
-
-| Condition | Log-router behavior |
-|-----------|---------------------|
-| Postgres unreachable at startup | Exit. Helm liveness probe restarts. Postgres deploys before hermez/log-router (helm init ordering). |
-| Postgres unreachable mid-flight | Serve from cache until TTL expires; log errors. Admin path unaffected. |
-| `target_bucket` empty on `enabled=true` row | Should never happen (validated at write time). Treat as disabled; log warning with project_id. |
-| Log-router tries to write (impossible) | `permission denied`. Defense-in-depth. |
-
-**Full contract:** `docs/dataplane-config-read-contract.md`
-
----
-
-## Decision 6: Postgres access model — one database, two roles
-
-**One postgres-ng cluster. One database (`hermes`). Two postgres login roles.**
-
-| Role | Owns | Access to other tables |
-|------|------|------------------------|
-| `hermes` | `dataplane_config` | — |
-| `log-router` | `metering_records` | SELECT on `dataplane_config` (granted by hermez migration 001) |
-
-Hermez migration `001_create_dataplane_config.up.sql`:
-```sql
-CREATE TABLE IF NOT EXISTS dataplane_config ( ... );
-
 GRANT SELECT ON dataplane_config TO "log-router";
 ```
 
-The grant is **direct** to the `log-router` login role — no NOLOGIN intermediary
-role. The `hermes` user owns the table and can issue the grant without
-`CREATEROLE`. The `log-router` role must be provisioned by the helm chart's
-postgres-ng seed before hermez starts.
+| Column | Set by hermez from |
+|---|---|
+| `project_id` | URL path, never the request body |
+| `enabled` | request body |
+| `target_bucket` | request body; `hermes-audit` if `enabled=true` and the field is empty or missing |
+| `updated_at` | server clock (UTC) on every PUT |
+| `updated_by` | `user_id` from the Keystone token |
 
-**Why one database, not two:**
-- Postgres cross-database queries are expensive; though not needed today, keeping
-  routing and metering in one DB preserves the option.
-- One `pg_dump`, one backup policy, one connection-pool budget.
-- Table-level GRANTs enforce the same access boundary as separate databases would,
-  with less operational overhead.
+### 3. API
 
-**Metering stays in log-router:**
-`metering_records` is hot-write on every flush (one upsert per batch of events).
-Routing that write through hermez adds latency to the critical path. Log-router
-keeps its metering writer; the table lives in the same database but is owned by
-the `log-router` role. Hermez has no grants on `metering_records`.
+| Method | Path | Success | Other codes |
+|---|---|---|---|
+| GET | `/v1/projects/{project_id}/dataplane-config` | 200, stored row or `{"project_id":…,"enabled":false,…}` if none | 401/403, 500 (storage) |
+| PUT | same | 200 with saved row | 400, 401, 403, 415, 500 |
+| DELETE | same | 204, also when no row existed | 401, 403, 500 |
 
----
+PUT rules:
 
-## Decision 7: Deploy model — single coordinated deploy
+- `Content-Type` must start with `application/json`, else 415.
+- Body is capped at 64 KiB. Unknown JSON fields are rejected with 400. Accepted fields: `enabled`, `target_bucket`.
+- A non-empty `target_bucket` must match `^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$` and must not contain `--`. This is checked even when `enabled=false`.
+- `enabled=true` with no `target_bucket` stores `hermes-audit` (#371).
+- Write is `INSERT ... ON CONFLICT (project_id) DO UPDATE`, so PUT is idempotent.
+- A token without `user_id` gets 401 on PUT and DELETE.
 
-The original design planned four independent phases (postgres first, hermez code
-second, log-router third, house-cleaning fourth). In practice all three changes
-deployed together into qa-de-1:
+CADF events (target type `service/hermes/dataplane-config`):
 
-| PR | Repo | What it did |
-|----|------|-------------|
-| #352 | hermez | Dataplane-config API + postgres migration + CADF audit events |
-| #24 | log-router | Swift/Ceph RGW storage backend + hermez postgres config read |
-| #12097 | helm-charts | postgres-ng, log-router StatefulSet, HERMES_PG_* env, policy rule fix |
+- PUT: one event per attempt that passes auth, including 400, 415 and 500 outcomes.
+- DELETE: an event only when a row was removed, or when storage failed. A DELETE of a missing row emits nothing.
+- Events go to the RabbitMQ queue in `HERMES_AUDIT_RABBITMQ_QUEUE_NAME`. If that is unset, hermez uses a null auditor and events are dropped.
 
-The phased approach guided design (postgres validated before consumers, each
-change independently reversible) but execution collapsed into one coordinated
-push because qa-de-1 was the first region and there was no production traffic to
-protect.
+### 4. Authorization
 
-**Schema migration safety:**
+Policy rule in `etc/policy.json`:
 
-`easypg.Connect` acquires `pg_advisory_lock` before running migrations.
-Multiple hermez replicas starting simultaneously: the first acquires the lock
-and runs migration 001; the others wait, see the schema already at version 1,
-and proceed. Migration IDs are keyed on the filename string in `DBMigrations`.
+```json
+"project_admin": "rule:project_scope and role:audit_admin",
+"cluster_viewer": "project_domain_name:cloud_domain and project_name:cloud_admin_project",
+"dataplane_config:manage": "rule:project_admin or rule:cluster_viewer"
+```
 
-**Migration rule: additive only.** No DROP, RENAME, or type change on existing
-columns. Log-router's SELECT list is explicit (`project_id, enabled, target_bucket`)
-so new columns added by future hermez migrations are invisible and non-breaking.
-Non-additive changes ship in two steps: add new column → log-router learns it →
-remove old column (two separate PRs, two separate deploys).
+On top of the policy, `authDataplaneConfig` in `pkg/api/dataplane_config.go` returns 403 when the path `project_id` differs from the token's project, unless the token passes `cluster_viewer`. So:
 
-**Region order for remaining regions:**
+| Caller | Can manage |
+|---|---|
+| `audit_admin` on project P | only P |
+| token scoped to `cloud_admin_project` in `cloud_domain` | any project |
 
-| Step | Region | Soak |
-|------|--------|------|
-| ✓ | qa-de-1 | validated |
-| 2 | eu-de-1 | 24h |
-| 3 | eu-de-2 | 12h |
-| 4 | na-us-1 | 12h |
-| 5 | ap-jp-2 | 12h |
-| 6 | All remaining | parallel after #5 |
+### 5. Storage in hermez
 
-**Rollback:**
+- Postgres through `database/sql`, `lib/pq` and `go.xyrillian.de/gg/pgruntime` (switched from easypg in #356).
+- Migrations are an inline Go map `DBMigrations` keyed by int64 version. There is one migration, version 1. No `.sql` files.
+- pgruntime serializes migrations with `SELECT version FROM schema_migrations FOR UPDATE` (a row lock), not `pg_advisory_lock`. A replica that finds the schema already migrated past its target version gets an error. hermez wraps `NewPostgres` in `must.Return`, so that replica exits.
+- Pool: 16 open, 4 idle connections.
+- Selected by `hermes.routing_store_driver`. Default is `postgres`. The only other accepted value is `mock` (in-memory). Any other value, including `""`, is fatal at startup.
 
-| What broke | Rollback action |
-|------------|-----------------|
-| Hermez dataplane-config API | Set `routing_store_driver = ""` in config; hermez skips postgres on restart |
-| Log-router routing decisions | Remove `LOG_ROUTER_DB_URL`; log-router falls back to static config (all events to admin path only) |
-| Postgres schema | Data preserved; PVC retained on pod removal (`resource-policy: keep`) |
+Environment:
 
----
+| Variable | Default |
+|---|---|
+| `HERMES_PG_HOSTNAME` | `localhost` |
+| `HERMES_PG_PORT` | `5432` |
+| `HERMES_PG_USERNAME` | `hermes` |
+| `HERMES_PG_PASSWORD` | empty (logs a SECURITY WARNING) |
+| `HERMES_PG_DBNAME` | `hermes` |
+| `HERMES_PG_CONNECTION_OPTIONS` | empty |
+
+```toml
+[hermes]
+routing_store_driver = "postgres"   # or "mock"; nothing else is accepted
+```
+
+### 6. How log-router uses the config
+
+Postgres mode is on only when `LOG_ROUTER_DB_URL` is non-empty. Per event:
+
+1. Admin copy is taken first, unconditionally, before validation, config lookup or the enabled check.
+2. Config is looked up with `SELECT project_id, enabled, target_bucket FROM dataplane_config WHERE project_id = $1`. The tenant is the event's `initiator.project_id`.
+3. No row or `enabled=false`: the customer copy is dropped and counted in `log_router_events_dropped_total{reason="tenant_not_enabled"}`. No log line.
+4. `enabled=true`: a per-project rate limit applies (10,000 events/s, hard-coded, not settable from hermez or env), then the event goes on to processing and is buffered for the customer copy.
+
+Mapping from the row: `enabled` becomes `DataPlaneEnabled`, `target_bucket` becomes the container (empty becomes `hermes-audit`), and the storage account is `AUTH_<project_id>`. Nothing else is read. Sinks, CEL filters, grace time, retention and OpenSearch delivery are not fed from this table.
+
+Where objects land:
+
+| Copy | Account | Container | Key |
+|---|---|---|---|
+| Admin | Swift mode: `LOG_ROUTER_SWIFT_ADMIN_ACCOUNT`, or the service user's own account if unset | `LOG_ROUTER_S3_BUCKET` (required) | `default/admin/YYYY/MM/DD/HH:00_HH:59/` |
+| Project | `AUTH_<project_id>` | `target_bucket` (default `hermes-audit`) | `default/YYYY/MM/DD/HH:00_HH:59/` |
+
+Object names under the prefix are `S{n}.json`, late-arrival shards `A{shard}_{n}.json`, plus manifest and digest objects. `LOG_ROUTER_S3_PREFIX`, if set, is prepended. The project container is created on first write with read ACL `<project_id>:*`.
+
+Cache: in-memory per process, TTL from `LOG_ROUTER_CACHE_TTL` (default 5m, `0` disables), max 1000 entries. Only lookups that found a row are cached. Projects with no row hit Postgres on every lookup.
+
+Metering: after each successful customer-copy flush, log-router upserts a row in `metering_records` on the same `*sql.DB` it uses for config. A metering failure does not fail the flush. The admin copy is not metered.
+
+### 7. Database roles
+
+- hermez connects as `HERMES_PG_USERNAME` (default `hermes`), creates the table, and grants SELECT to the login role `log-router`. There is no intermediate NOLOGIN role; the migration does not run `CREATE ROLE`.
+- The `log-router` role must exist before hermez runs migration 1, otherwise the GRANT fails.
+- log-router gets its credentials only from the DSN in `LOG_ROUTER_DB_URL`.
+- log-router's binary runs no migrations. `metering_records` has to exist already; log-router ships its SQL (`migrations/004_create_metering_records.up.sql`) but does not apply it.
+
+## Failure behaviour
+
+| Situation | What happens |
+|---|---|
+| hermez API down | No effect on log-router. It does not call hermez. |
+| Postgres down when log-router starts | 10 pings with backoff inside 60s, then fatal exit. |
+| Postgres down while running, entry cached | Cached config keeps being used until its 5m TTL runs out. |
+| Postgres down while running, no cached entry | Lookup returns an error. It is not treated as "disabled". On ingest: counted in `log_router_ingest_errors_total{reason="config_lookup"}` and the RabbitMQ message is requeued; after `LOG_ROUTER_RABBITMQ_MAX_REDELIVERIES` (default 3) it is rejected to the DLX if one is configured. On flush: the customer partition is skipped and stays buffered. |
+| Any of the above | Admin copy continues. Admin ingest and admin flush never look at config. |
+| Admin queue backed up | Admin enqueue waits at most 5s, then that admin copy is abandoned and counted. |
+| Postgres down when hermez starts | `NewPostgres` fails and `must.Return` exits the process. |
+| Postgres down while hermez runs | GET/PUT/DELETE return an obfuscated 500. |
+
+Each requeue runs ingest again, so it takes another admin copy of the same event (inferred from the code order, not tested).
+
+## Rollback and off switches
+
+| Component | What you can do | Effect |
+|---|---|---|
+| One project | `PUT {"enabled":false}` or `DELETE` | Customer copy stops once log-router's cache entry for the project expires (up to 5m). |
+| hermez dataplane-config API | No off switch. `routing_store_driver` takes `postgres` or `mock` only; `""` is fatal (`main.go:158-159`). `mock` is in-memory and loses all rows on restart. | Not a usable rollback without a code change. |
+| log-router DB read | Remove `LOG_ROUTER_DB_URL` | log-router switches to a static config with `DataPlaneEnabled: true` for every project (`main.go:223`) and empty bucket. Empty bucket selects the fallback client, so every project's customer copy is written into the admin container under `default/YYYY/...`, next to `default/admin/...`. Metering stops. This is not "admin only". |
 
 ## Consequences
 
-### Positive
+- One API and one auth model for audit reads and routing config.
+- log-router does not depend on the hermez API being up. It does depend on Postgres being up at startup.
+- A Postgres outage delays or dead-letters project copies for projects without a cached entry. Admin copies continue.
+- Config changes reach log-router within the cache TTL (default 5m) for projects that already had a cached row. Enabling a project that had no row takes effect on the next lookup.
+- Multiple hermez replicas share the table. Concurrent PUTs are serialized by Postgres; there is no leader election.
+- log-router writes to the same database (`metering_records`), so "read-only consumer" is true for `dataplane_config` only.
+- The `apply-lifecycle` admin tool in log-router reads the table with its own query (see the contract doc).
 
-- Hermez is now a complete tenant-facing API for audit: reads (OpenSearch) and
-  routing config (postgres). One URL prefix, one auth model.
-- Log-router has no HTTP dependency on hermez for routing decisions. A hermez-api
-  outage does not affect the data plane.
-- The `audit_admin` Keystone role and policy rules live with the API that enforces
-  them — no split-brain.
-- CADF events for every PUT/DELETE provide a tamper-evident config change log
-  accessible via the existing `GET /v1/events` API.
+## Not implemented
 
-### Negative / Accepted risk
+- Bulk admin endpoint `GET /v1/dataplane-configs`.
+- sqlstats collector for hermez Postgres metrics.
+- Per-project rate limits, retention, grace time, CEL filters or multiple sinks via hermez. log-router has code for these, but nothing in `dataplane_config` feeds it.
+- A batch lookup (`WHERE project_id = ANY($1)`) in the log-router service.
+- Config history table. The CADF events are the only trail.
+- log-router creating `metering_records` itself.
 
-- Hermez gained state. Multiple hermez replicas share one postgres. Write
-  serialization is handled by postgres; no leader election in hermez.
-- Hermez now has an operational postgres surface: backups, migrations, connection
-  monitoring. Mitigation: `postgresql-ng` + pgbackup + pgmetrics trio per SAP CC
-  house pattern.
-- Log-router has a hard dependency on hermez-postgres. This is the same class of
-  dependency it already has for metering writes.
+## Not verified from code
 
-### Deferred (future ADR)
+These appeared in earlier versions. They may be true but are deployment, process or history facts that the code does not show.
 
-- CEL filter expressions on events per project
-- Multiple sinks per project
-- Rate limits and retention policies
-- Bulk admin endpoint (`GET /v1/dataplane-configs` for operators)
-- Auto-disable after inactivity TTL
-- `docs/operators/db-roles.md` — formal access matrix for operators
-- `sqlstats` Prometheus collector for hermez postgres connection metrics
+- Ship date and PR links for log-router #24 and helm-charts #12097. hermez #352 is in git history.
+- The admin container being `ccadmin/master` in production. The code only reads `LOG_ROUTER_S3_BUCKET` and `LOG_ROUTER_SWIFT_ADMIN_ACCOUNT`.
+- The production RabbitMQ queue name. log-router defaults to `audit-events`; `dataplane.audit` does not appear in its code.
+- Whether production runs log-router in Swift mode. Per-project delivery into `AUTH_<project_id>` is implemented in the Swift backend. The in-repo chart does not set `LOG_ROUTER_SWIFT_ENABLED` or `OS_*`.
+- Postgres cluster type, database name used by log-router, backups, PVC retention, and who provisions the `log-router` role. log-router's own README shows database `log-router`, which would not contain `dataplane_config`.
+- Replica counts in production (the in-repo log-router chart has a 2-replica StatefulSet).
+- Cache TTL overrides per region, region rollout order.
+- Whether CADF events for config changes show up in `GET /v1/events`. That depends on the Logstash pipeline.
+- The effective privileges of the `log-router` role beyond the SELECT grant.
+- Classic vs quorum queue. The redelivery limit reads `x-delivery-count`; on a classic queue the code only sees 0 or 1 (`internal/source/rabbitmq.go:668-671`), so with the default limit of 3 a failing message would be requeued without end (inferred, not tested).
+
+## Sources
+
+hermez: `main.go`, `pkg/api/core.go`, `pkg/api/dataplane_config.go`, `pkg/routing/*.go`, `etc/policy.json`.
+log-router (a20013b): `cmd/log-router/main.go`, `internal/config/client.go`, `internal/router/{router,flush,adminTier}.go`, `internal/audit/event.go`, `internal/sink/s3.go`, `internal/storage/{pool,swift}.go`, `internal/source/rabbitmq.go`, `internal/metering/postgres.go`.
