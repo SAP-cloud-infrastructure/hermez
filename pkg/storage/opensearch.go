@@ -542,7 +542,7 @@ func (os *OpenSearch) search(ctx context.Context, index string, bodyJSON []byte)
 	// shard failures come back as a partial-failure error next to a fully
 	// decoded response. Drop the error so the caller's searchResultIsPartial
 	// check returns ErrPartialResults, same as with the mask in place.
-	if err != nil && opensearchapi.IsPartialFailure(err) {
+	if err != nil && resp != nil && opensearchapi.IsPartialFailure(err) {
 		return resp, nil
 	}
 	return resp, err
