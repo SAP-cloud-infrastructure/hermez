@@ -22,7 +22,11 @@ func init() {
 		// Emit a loud, unmissable warning. This runs before main() configures
 		// debug logging, but logg.Error is never gated, so an operator who has
 		// accidentally shipped this flag to production will see it in the logs.
-		logg.Error("SECURITY WARNING: HERMES_INSECURE=1 disables TLS certificate verification for all outbound HTTPS (Keystone, OpenSearch). This is for local mitmproxy debugging ONLY and must never be set in production.")
+		//
+		// Only clients that use http.DefaultTransport are affected (Keystone via
+		// gophercloud). The OpenSearch client builds its own transport and still
+		// verifies certificates, so the warning must not claim otherwise.
+		logg.Error("SECURITY WARNING: HERMES_INSECURE=1 disables TLS certificate verification for outbound HTTPS that uses the default transport (Keystone). OpenSearch connections are not affected and still verify certificates. This is for local mitmproxy debugging ONLY and must never be set in production.")
 		tlsConf := &tls.Config{
 			InsecureSkipVerify: true, //nolint:gosec // intentional usage of InsecureSkipVerify
 		}
