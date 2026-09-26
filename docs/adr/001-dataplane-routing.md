@@ -19,7 +19,7 @@ Everything below describes the code at those two commits. Items that could not b
 
 ## Context
 
-log-router consumes CADF audit events and writes every event to an admin container. Project owners had no way to get a copy of their own events into storage they control.
+log-router consumes CADF audit events and writes an admin copy of each event it ingests, before any per-project check runs (`internal/router/router.go:390-407`). Project owners had no way to get a copy of their own events into storage they control.
 
 The feature adds a per-project opt-in. When a project is enabled, log-router writes a second copy of that project's events into a container in the project's own object-storage account.
 
