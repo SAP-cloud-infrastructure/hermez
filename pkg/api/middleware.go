@@ -31,6 +31,9 @@ var (
 	handlerMetricsMux sync.RWMutex
 )
 
+// responseSizeBuckets are the upper bounds of hermes_response_size_bytes.
+var responseSizeBuckets = prometheus.ExponentialBuckets(256, 4, 10)
+
 // handlerMetricSet holds the metrics for a specific handler
 type handlerMetricSet struct {
 	durationHistogram     *prometheus.HistogramVec
@@ -106,7 +109,9 @@ func getOrCreateHandlerMetrics(handlerName string) *handlerMetricSet {
 				Name:        "hermes_response_size_bytes",
 				Help:        "Size of the Hermes response (e.g. to a query)",
 				ConstLabels: prometheus.Labels{"handler": handlerName},
-				Buckets:     prometheus.LinearBuckets(100, 100, 10),
+				// 256 B up to 64 MiB in steps of 4x: covers single events
+				// (~1 KB), list pages (a few KB) and large downloads (MBs).
+				Buckets: responseSizeBuckets,
 			},
 			[]string{},
 		)
