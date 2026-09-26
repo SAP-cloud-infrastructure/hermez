@@ -167,6 +167,18 @@ func parseTimeParam(res http.ResponseWriter, req *http.Request) (map[string]stri
 	return timeRange, nil
 }
 
+// searchTooLong reports whether the "search" query parameter is longer than
+// storage.MaxSearchQueryLength runes. If so, it has already written a 400.
+// Both the list and the download handler call it, because both pass the value
+// to OpenSearch as a free-text query.
+func searchTooLong(res http.ResponseWriter, req *http.Request) bool {
+	if utf8.RuneCountInString(req.FormValue("search")) > storage.MaxSearchQueryLength {
+		http.Error(res, "search query is too long", http.StatusBadRequest)
+		return true
+	}
+	return false
+}
+
 // buildEventFilter constructs an EventFilter from request query parameters.
 // sortSpec and timeRange should come from parseSortParam/parseTimeParam.
 // offset and limit are caller-supplied (differ between List and Download).
@@ -234,12 +246,12 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logg.Debug("api.ListEvents: Create filter")
-	filter := buildEventFilter(req, sortSpec, timeRange, offset, limit)
-	if utf8.RuneCountInString(filter.Search) > storage.MaxSearchQueryLength {
-		http.Error(res, "search query is too long", http.StatusBadRequest)
+	if searchTooLong(res, req) {
 		return
 	}
+
+	logg.Debug("api.ListEvents: Create filter")
+	filter := buildEventFilter(req, sortSpec, timeRange, offset, limit)
 
 	logg.Debug("api.ListEvents: call hermes.GetEvents()")
 	indexID, err := getIndexID(token, req, res)
@@ -302,6 +314,9 @@ func (p *v1Provider) DownloadEvents(res http.ResponseWriter, req *http.Request) 
 	}
 	timeRange, err := parseTimeParam(res, req)
 	if err != nil {
+		return
+	}
+	if searchTooLong(res, req) {
 		return
 	}
 
