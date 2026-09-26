@@ -29,7 +29,7 @@ The feature adds a per-project opt-in. When a project is enabled, log-router wri
 
 - hermez owns the `dataplane_config` table, its migration, the REST API that writes it, and the CADF events for changes.
 - log-router reads the table directly over Postgres. It has no HTTP client for hermez. Its only HTTP routes are `/metrics`, `/v1/signing-key` and a health check.
-- No code in log-router writes `dataplane_config` (repo-wide search for INSERT/UPDATE/DELETE on it finds nothing; `internal/config/client.go:71` only SELECTs). It does write `metering_records` over the same database connection (see section 6).
+- No code in log-router writes `dataplane_config` (repo-wide search for INSERT/UPDATE/DELETE on it finds nothing; `internal/config/client.go:71` only runs SELECT). It does write `metering_records` over the same database connection (see section 6).
 
 ### 2. Data model
 
