@@ -5,6 +5,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -459,5 +460,78 @@ func TestDataplaneConfig_PutRejectsNullAndTrailingData(t *testing.T) {
 				t.Errorf("stored enabled = %v, want %v", cfg.Enabled, wantEnabled)
 			}
 		})
+	}
+}
+
+// countingRoutingStore wraps routing.Mock and counts calls into it.
+type countingRoutingStore struct {
+	*routing.Mock
+	calls int
+}
+
+func (s *countingRoutingStore) Get(ctx context.Context, projectID string) (*routing.DataplaneConfig, error) {
+	s.calls++
+	return s.Mock.Get(ctx, projectID)
+}
+
+func (s *countingRoutingStore) Upsert(ctx context.Context, cfg routing.DataplaneConfig) error {
+	s.calls++
+	return s.Mock.Upsert(ctx, cfg)
+}
+
+func (s *countingRoutingStore) Delete(ctx context.Context, projectID string) (bool, error) {
+	s.calls++
+	return s.Mock.Delete(ctx, projectID)
+}
+
+// TestDataplaneConfig_ProjectIDValidation proves that a malformed path
+// project_id gets a 400 before the routing store is called, for every method.
+// The token is allowed cluster_viewer, so the cross-project check passes and
+// only the format check stands between the input and the store.
+func TestDataplaneConfig_ProjectIDValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		projectID string
+		valid     bool
+	}{
+		{"KeystoneID", "7a09c05926ec452ca7992af4aa03c31d", true},
+		{"MaxLength", strings.Repeat("a", 64), true},
+		{"WithDashAndUnderscore", "test-project_1", true},
+		{"TooLong", strings.Repeat("a", 65), false},
+		{"Dot", "not.a.project", false},
+		{"Space", "not%20a%20project", false},
+		{"Percent", "abc%25def", false},
+	} {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+			t.Run(tc.name+"/"+method, func(t *testing.T) {
+				prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
+				store := &countingRoutingStore{Mock: routing.NewMock()}
+				validator := mock.NewValidator(mock.NewEnforcer(), map[string]string{
+					"project_id": testProjectID,
+					"user_id":    "user-abc",
+				})
+				v1API := NewV1API(validator, storage.Mock{}, store, audittools.NewMockAuditor(), nil, nil)
+				handler := httpapi.Compose(v1API)
+
+				req := httptest.NewRequest(method, "/v1/projects/"+tc.projectID+"/dataplane-config", strings.NewReader(`{"enabled":false}`))
+				req.Header.Set("X-Auth-Token", "something")
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+
+				if tc.valid {
+					if rec.Code == http.StatusBadRequest || store.calls != 1 {
+						t.Errorf("valid project_id: status %d, store calls %d; want success and 1 call", rec.Code, store.calls)
+					}
+					return
+				}
+				if rec.Code != http.StatusBadRequest {
+					t.Errorf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+				}
+				if store.calls != 0 {
+					t.Errorf("routing store called %d times for an invalid project_id", store.calls)
+				}
+			})
+		}
 	}
 }
