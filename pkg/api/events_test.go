@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -182,5 +183,65 @@ func checkLinkOffset(t *testing.T, name, link, wantOffset string) {
 	}
 	if got := u.Query().Get("offset"); got != wantOffset {
 		t.Errorf("%s link offset = %q, want %q (link %s)", name, got, wantOffset, link)
+	}
+}
+
+func TestListEvents_SortTopicsReachStorage(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		sort      string
+		wantCode  int
+		wantField []string
+	}{
+		{"Current", "time:desc,action", http.StatusOK, []string{"time", "action"}},
+		{"DeprecatedSource", "source:desc", http.StatusOK, []string{"observer_type"}},
+		{"DeprecatedEventType", "event_type", http.StatusOK, []string{"action"}},
+		{"DeprecatedResourceType", "resource_type:asc", http.StatusOK, []string{"resource_type"}},
+		{"ResourceNameHasNoField", "resource_name", http.StatusBadRequest, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeEventStore(1, 100)
+			router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
+			rec := doGet(t, router, "/v1/events?sort="+tc.sort)
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body: %s", rec.Code, tc.wantCode, rec.Body.String())
+			}
+			filters := store.receivedFilters()
+			if tc.wantCode != http.StatusOK {
+				if len(filters) != 0 {
+					t.Error("rejected sort reached the storage layer")
+				}
+				if !strings.Contains(rec.Body.String(), "valid topics: action,") {
+					t.Errorf("400 body does not list the valid topics: %s", rec.Body.String())
+				}
+				return
+			}
+			if len(filters) != 1 {
+				t.Fatalf("storage called %d times, want 1", len(filters))
+			}
+			var got []string
+			for _, fo := range filters[0].Sort {
+				got = append(got, fo.Fieldname)
+			}
+			if !slices.Equal(got, tc.wantField) {
+				t.Errorf("sort fields = %v, want %v", got, tc.wantField)
+			}
+		})
+	}
+}
+
+// TestSortTopicsHaveStorageFields guards against accepting a sort key that
+// the storage layer cannot map to a field (it would build an empty sort key
+// and OpenSearch would fail the whole query).
+func TestSortTopicsHaveStorageFields(t *testing.T) {
+	for topic := range validSortTopics {
+		if storage.CADFFieldMapping[topic] == "" {
+			t.Errorf("sort topic %q has no entry in storage.CADFFieldMapping", topic)
+		}
+	}
+	for alias, topic := range deprecatedSortTopics {
+		if !validSortTopics[topic] {
+			t.Errorf("deprecated sort topic %q points to %q, which is not a valid topic", alias, topic)
+		}
 	}
 }

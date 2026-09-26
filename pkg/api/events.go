@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
-	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -46,11 +47,17 @@ var validSortTopics = map[string]bool{
 	"initiator_name": true,
 	"initiator_type": true,
 	"request_path":   true,
-	// deprecated
-	"source":        true,
+	// deprecated alias of target_type, kept as its own storage field mapping
 	"resource_type": true,
-	"resource_name": true,
-	"event_type":    true,
+}
+
+// deprecatedSortTopics maps old sort keys to the topic they stand for. The
+// storage layer only knows the new names, so they are rewritten before the
+// filter is built. resource_name was also accepted in the past, but no stored
+// field backs it, so it is now rejected like any other unknown topic.
+var deprecatedSortTopics = map[string]string{
+	"source":     "observer_type",
+	"event_type": "action",
 }
 
 var validSortDirections = map[string]bool{"asc": true, "desc": true}
@@ -81,8 +88,11 @@ func parseSortParam(res http.ResponseWriter, req *http.Request) ([]hermes.FieldO
 			http.Error(res, "Invalid sort parameter: field name cannot be empty", http.StatusBadRequest)
 			return nil, errors.New("invalid sort parameter")
 		}
+		if topic, ok := deprecatedSortTopics[sortfield]; ok {
+			sortfield = topic
+		}
 		if !validSortTopics[sortfield] {
-			msg := fmt.Sprintf("not a valid topic: %s, valid topics: %v", sortfield, reflect.ValueOf(validSortTopics).MapKeys())
+			msg := fmt.Sprintf("not a valid topic: %s, valid topics: %s", sortfield, strings.Join(slices.Sorted(maps.Keys(validSortTopics)), ", "))
 			http.Error(res, msg, http.StatusBadRequest)
 			return nil, errors.New(msg)
 		}
