@@ -30,9 +30,10 @@ type fakeEventStore struct {
 	filters    []storage.EventFilter
 }
 
-// newFakeEventStore returns a store holding n events with predictable IDs.
-func newFakeEventStore(n int, maxLimit uint) *fakeEventStore {
-	s := &fakeEventStore{maxLimit: maxLimit}
+// newFakeEventStore returns a store holding n events with predictable IDs
+// and a MaxLimit of 100, like storage.Mock.
+func newFakeEventStore(n int) *fakeEventStore {
+	s := &fakeEventStore{maxLimit: 100}
 	for i := range n {
 		s.events = append(s.events, &cadf.Event{
 			ID:        fmt.Sprintf("00000000-0000-0000-0000-%012d", i),
@@ -71,7 +72,7 @@ func (s *fakeEventStore) receivedFilters() []storage.EventFilter {
 }
 
 func TestDownloadEvents_StreamsAllEvents(t *testing.T) {
-	store := newFakeEventStore(3, 100)
+	store := newFakeEventStore(3)
 	router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
 
 	rec := doGet(t, router, "/v1/events/download?action=create")
@@ -110,7 +111,7 @@ func TestDownloadEvents_StreamsAllEvents(t *testing.T) {
 }
 
 func TestDownloadEvents_RejectsLongSearch(t *testing.T) {
-	store := newFakeEventStore(3, 100)
+	store := newFakeEventStore(3)
 	router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
 
 	for _, tc := range []struct {
@@ -151,7 +152,7 @@ func TestListEvents_PaginationLinks(t *testing.T) {
 		{"DefaultLimit", "offset=3", "0", "13", 50},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := newFakeEventStore(tc.storedRows, 100)
+			store := newFakeEventStore(tc.storedRows)
 			router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
 			rec := doGet(t, router, "/v1/events?"+tc.query)
 			if rec.Code != http.StatusOK {
@@ -200,7 +201,7 @@ func TestListEvents_SortTopicsReachStorage(t *testing.T) {
 		{"ResourceNameHasNoField", "resource_name", http.StatusBadRequest, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := newFakeEventStore(1, 100)
+			store := newFakeEventStore(1)
 			router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
 			rec := doGet(t, router, "/v1/events?sort="+tc.sort)
 			if rec.Code != tc.wantCode {
@@ -263,7 +264,7 @@ func TestListEvents_LegacyFilterNames(t *testing.T) {
 			fields{"", "compute/server", "u1", ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := newFakeEventStore(1, 100)
+			store := newFakeEventStore(1)
 			router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
 			rec := doGet(t, router, "/v1/events?"+tc.query)
 			if rec.Code != http.StatusOK {
