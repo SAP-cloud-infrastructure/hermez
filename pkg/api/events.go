@@ -290,8 +290,11 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		req.Form.Set("offset", strconv.FormatUint(uint64(filter.Offset+filter.Limit), 10))
 		eventList.NextURL = fmt.Sprintf("%s://%s%s?%s", protocol, req.Host, req.URL.Path, req.Form.Encode())
 	}
-	if filter.Offset >= filter.Limit {
-		req.Form.Set("offset", strconv.FormatUint(uint64(filter.Offset-filter.Limit), 10))
+	// Any offset > 0 has a previous page. When the offset is smaller than the
+	// limit, the previous page starts at 0 instead of going negative.
+	if filter.Offset > 0 {
+		prevOffset := filter.Offset - min(filter.Offset, filter.Limit)
+		req.Form.Set("offset", strconv.FormatUint(uint64(prevOffset), 10))
 		eventList.PrevURL = fmt.Sprintf("%s://%s%s?%s", protocol, req.Host, req.URL.Path, req.Form.Encode())
 	}
 

@@ -41,7 +41,7 @@ CADF payload data for each individual event.
 | search | string | Searches all events based on string (e.g. attachments) |
 | time | string | Date filter to select all events with _eventTime_ matching the specified criteria. See Date Filters below for more detail. |
 | offset | integer | The starting index within the total list of the events that you would like to retrieve. |
-| limit | integer | The maximum number of records to return (up to 100). The default limit is 10. |
+| limit | integer | The maximum number of records to return. The default limit is 10. `offset` + `limit` must not exceed the server's maximum result window (`opensearch.max_result_window`, 20000 by default); larger requests return HTTP 400. |
 | sort | string | Determines the sorted order of the returned list. See Sorting below for more detail. |
 | domain\_id | string | Selects all events in this domain (requires special permissions). |
 | project\_id | string | Selects all events in this project (requires special permissions). |
@@ -132,7 +132,7 @@ This example shows the audit events for adding a role to a user.
       }
     }
   ],
-  "total": 2
+  "total": 5
 }
 ```
 
@@ -143,14 +143,59 @@ This example shows the audit events for adding a role to a user.
 | events | list | Contains a list of events. The attributes in the event objects are the same as for an individual event. |
 | total | integer | The total number of events available to the user. |
 | next | string | A HATEOAS URL to retrieve the next set of events based on the offset and limit parameters. This attribute is only available when the total number of events is greater than offset and limit parameter combined. |
-| previous | string | A HATEOAS URL to retrieve the previous set of events based on the offset and limit parameters. This attribute is only available when the request offset is greater than 0. |
+| previous | string | A HATEOAS URL to retrieve the previous set of events based on the offset and limit parameters. This attribute is only available when the request offset is greater than 0. Its offset is `offset - limit`, or 0 when the request offset is smaller than the limit. |
 
 **HTTP Status Codes**
 
 | **Code** | **Description** |
 | --- | --- |
 | 200 | Successful Request |
+| 400 | Invalid parameter, e.g. a malformed `sort` or `time` value, a `search` longer than 4096 characters, or `offset` + `limit` above the maximum result window |
 | 401 | Invalid/expired X-Auth-Token or the token doesn&#39;t have permissions to this resource |
+
+## Download events
+
+**GET /v1/events/download**
+
+Returns all events that match the filter as newline-delimited JSON (one event
+object per line) instead of a paginated list. It needs the same permission as
+`GET /v1/events`. Operators can rate-limit it separately from the other endpoints
+(`API.RateLimit.DownloadRequestsPerSecond`).
+
+**Parameters**
+
+Takes the same filter parameters as `GET /v1/events`: `observer_type`,
+`target_type`, `target_id`, `initiator_id`, `initiator_type`,
+`initiator_name`, `action`, `outcome`, `search`, `request_path`, `time`,
+`sort`, `project_id` and `details`. `offset` and `limit` are ignored; the
+server fetches the results itself in pages of `opensearch.max_result_window`
+events.
+
+**Response**
+
+* `Content-Type: application/x-ndjson`
+* `Content-Disposition: attachment; filename="audit-events.jsonl"`
+
+Each line has the same fields as an entry in the `events` list of
+`GET /v1/events` (attachments only when `details` is set).
+
+At most `opensearch.max_result_window` events (20000 by default) are returned
+per request. Narrow the `time` range to download more.
+
+The status line is sent before the events are read from storage. If storage
+fails, the stream ends early and the status is still 200. To check that a
+download is complete, compare the number of lines with the `total` returned by
+`GET /v1/events` for the same filter.
+
+**HTTP Status Codes**
+
+| **Code** | **Description** |
+| --- | --- |
+| 200 | Successful Request (see the note on storage errors above) |
+| 400 | Invalid `sort` or `time` value, or a `search` longer than 4096 characters |
+| 401 | Invalid/expired X-Auth-Token |
+| 403 | The token is not allowed to list events, or `project_id` was set without cloud admin permissions |
+| 429 | Rate limit exceeded (only when download rate limiting is configured) |
 
 ## Event details
 

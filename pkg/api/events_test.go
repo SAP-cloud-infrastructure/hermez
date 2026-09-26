@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -130,5 +131,56 @@ func TestDownloadEvents_RejectsLongSearch(t *testing.T) {
 				t.Error("an over-long search reached the storage layer")
 			}
 		})
+	}
+}
+
+func TestListEvents_PaginationLinks(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		query      string
+		wantPrev   string // expected offset in the previous link, "" for no link
+		wantNext   string // expected offset in the next link, "" for no link
+		storedRows int
+	}{
+		{"FirstPage", "offset=0&limit=10", "", "10", 50},
+		{"OffsetBelowLimit", "offset=5&limit=10", "0", "15", 50},
+		{"OffsetEqualsLimit", "offset=10&limit=10", "0", "20", 50},
+		{"OffsetAboveLimit", "offset=25&limit=10", "15", "35", 50},
+		{"LastPage", "offset=45&limit=10", "35", "", 50},
+		{"DefaultLimit", "offset=3", "0", "13", 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeEventStore(tc.storedRows, 100)
+			router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, store)
+			rec := doGet(t, router, "/v1/events?"+tc.query)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+			}
+			var list EventList
+			if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+				t.Fatal(err)
+			}
+			checkLinkOffset(t, "previous", list.PrevURL, tc.wantPrev)
+			checkLinkOffset(t, "next", list.NextURL, tc.wantNext)
+		})
+	}
+}
+
+// checkLinkOffset asserts that link is empty when wantOffset is empty, and
+// otherwise carries offset=wantOffset.
+func checkLinkOffset(t *testing.T, name, link, wantOffset string) {
+	t.Helper()
+	if wantOffset == "" {
+		if link != "" {
+			t.Errorf("%s link = %q, want none", name, link)
+		}
+		return
+	}
+	u, err := url.Parse(link)
+	if err != nil || link == "" {
+		t.Fatalf("%s link = %q, want one with offset=%s", name, link, wantOffset)
+	}
+	if got := u.Query().Get("offset"); got != wantOffset {
+		t.Errorf("%s link offset = %q, want %q (link %s)", name, got, wantOffset, link)
 	}
 }
