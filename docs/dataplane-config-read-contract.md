@@ -19,7 +19,7 @@ log-router's `internal/config/client.go` links to this file.
 | Table | `dataplane_config` |
 | Owner | hermez, created by migration version 1 in `pkg/routing/postgres.go` (inline Go, no `.sql` file) |
 | Reader role | `log-router`, granted `SELECT ON dataplane_config` directly in that migration |
-| Reader DSN | `LOG_ROUTER_DB_URL` in log-router (the only place its credentials come from) |
+| Reader DSN | `LOG_ROUTER_DB_URL` in log-router (`cmd/log-router/main.go:48`). `lib/pq` also honours the standard `PG*` env vars (e.g. `PGPASSWORD`) for anything the DSN leaves out. |
 | Reader writes | none to `dataplane_config`; log-router does upsert `metering_records` over the same connection |
 
 The GRANT fails if the `log-router` role does not exist when hermez runs migration 1. hermez does not create the role.
@@ -60,7 +60,7 @@ log-router reads `project_id`, `enabled` and `target_bucket`. It never reads `up
 
 hermez writes `hermes-audit` itself when a PUT has `enabled=true` and no bucket (#371), so the empty case only occurs for rows written before that change. log-router does not validate `target_bucket`; hermez validates it on PUT (`^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$`, no `--`).
 
-The admin copy never consults this table.
+The admin copy doesn't depend on this table: it is written before any config lookup (`internal/router/router.go:390-407`), and the admin ingest path has no config client.
 
 ## Caching and propagation
 
