@@ -271,6 +271,8 @@ returns
 | max_depth | integer | max. depth / level of detail of hierarchical values | infinity / unlimited |
 | limit | integer | limit of values returned (capped at the server's configured maximum; requests above the cap return HTTP 400) | 10000 | 
 
+Values for `max_depth` and `limit` that are not non-negative integers return HTTP 400.
+
 ### Hierarchical Values
 
 To support adjustable levels of detail, _type URIs_ and _actions_ in the CADF taxonomy are organized in hierarchies. Classifiers start with the most general classification followed by a theoretically unlimited number of sub-classifications, separated by slashes `/`. 

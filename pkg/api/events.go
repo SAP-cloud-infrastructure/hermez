@@ -429,8 +429,23 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		logg.Debug("attribute_name empty")
 		return
 	}
-	maxdepth, _ := strconv.ParseUint(req.FormValue("max_depth"), 10, 32) //nolint:errcheck
-	limit, _ := strconv.ParseUint(req.FormValue("limit"), 10, 32)        //nolint:errcheck
+	var maxdepth, limit uint64
+	if s := req.FormValue("max_depth"); s != "" {
+		parsed, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			http.Error(res, "Invalid max_depth value", http.StatusBadRequest)
+			return
+		}
+		maxdepth = parsed
+	}
+	if s := req.FormValue("limit"); s != "" {
+		parsed, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			http.Error(res, "Invalid limit value", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
 
 	// Default to the smaller of the historic API default and the configured
 	// storage maximum. This preserves omitted (and zero) limit semantics for

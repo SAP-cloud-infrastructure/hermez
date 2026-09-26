@@ -281,3 +281,26 @@ func TestListEvents_LegacyFilterNames(t *testing.T) {
 		})
 	}
 }
+
+func TestGetAttributes_RejectsInvalidNumbers(t *testing.T) {
+	router := setupTestWithScopeAndStorage(t, map[string]string{"project_id": "tenant-a"}, &fakeEventStore{maxLimit: 100, attributes: []string{"create"}})
+	for _, tc := range []struct {
+		name string
+		path string
+		want int
+	}{
+		{"Valid", "/v1/attributes/action?max_depth=2&limit=5", http.StatusOK},
+		{"EmptyValues", "/v1/attributes/action?max_depth=&limit=", http.StatusOK},
+		{"MaxDepthWord", "/v1/attributes/action?max_depth=two", http.StatusBadRequest},
+		{"MaxDepthNegative", "/v1/attributes/action?max_depth=-1", http.StatusBadRequest},
+		{"LimitWord", "/v1/attributes/action?limit=abc", http.StatusBadRequest},
+		{"LimitNegative", "/v1/attributes/action?limit=-1", http.StatusBadRequest},
+		{"LimitTooLarge", "/v1/attributes/action?limit=99999999999", http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if rec := doGet(t, router, tc.path); rec.Code != tc.want {
+				t.Errorf("status = %d, want %d; body: %s", rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
+}
