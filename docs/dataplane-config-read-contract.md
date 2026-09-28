@@ -4,35 +4,32 @@ SPDX-FileCopyrightText: 2026 SAP SE or an SAP affiliate company
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Dataplane Config — Log-Router Read Contract
+# Dataplane config: log-router read contract
 
-This document is the authoritative contract between hermez (writer) and log-router (reader)
-for the `dataplane_config` table. Log-router must implement against this spec; hermez
-must not break it without a migration and coordinated release.
+> Earlier versions of this document were out of date (cache TTL, outage behaviour, empty `target_bucket`, batch query). Do not use them for decisions.
 
----
+This is the contract between hermez (writer) and log-router (reader) for the `dataplane_config` table. It describes what the code does, re-checked on 2026-09-26 against hermez master (6b12f7b) and log-router main (a20013b). Background is in [ADR-001](adr/001-dataplane-routing.md).
 
-## Database
+log-router's `internal/config/client.go` links to this file.
+
+## Database access
 
 | Item | Value |
-|------|-------|
-| Host | PostgreSQL cluster provisioned by the `hermes` Helm chart |
-| Database | `hermes` (configurable via helm values) |
+|---|---|
 | Table | `dataplane_config` |
-| Login role | `log-router` (provisioned by the Helm chart's postgres-ng seed) |
-| Access | Direct `GRANT SELECT ON dataplane_config TO "log-router"` in hermez migration 001 |
+| Owner | hermez, created by migration version 1 in `pkg/routing/postgres.go` (inline Go, no `.sql` file) |
+| Reader role | `log-router`, granted `SELECT ON dataplane_config` directly in that migration |
+| Reader DSN | `LOG_ROUTER_DB_URL` in log-router (`cmd/log-router/main.go:48`). `lib/pq` also honours the standard `PG*` env vars (e.g. `PGPASSWORD`) for anything the DSN leaves out. |
+| Reader writes | none to `dataplane_config`; log-router does upsert `metering_records` over the same connection |
 
-Log-router connects to postgres using the `log-router` login role. Hermez's migration 001
-grants this role SELECT on `dataplane_config` directly — no intermediary NOLOGIN role.
-The `log-router` user has SELECT only — no INSERT, UPDATE, DELETE, or access to any
-other hermez-owned table.
+The GRANT fails if the `log-router` role does not exist when hermez runs migration 1. hermez does not create the role.
 
----
+log-router runs no migrations. `metering_records` must already exist in the database the DSN points at.
 
-## Table schema
+## Schema
 
 ```sql
-CREATE TABLE dataplane_config (
+CREATE TABLE IF NOT EXISTS dataplane_config (
     project_id    VARCHAR(64) PRIMARY KEY,
     enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
     target_bucket TEXT        NOT NULL DEFAULT '',
@@ -41,99 +38,63 @@ CREATE TABLE dataplane_config (
 );
 ```
 
----
+log-router reads `project_id`, `enabled` and `target_bucket`. It never reads `updated_at` or `updated_by`.
 
-## Reading a single project's config
+## Queries in use
 
-```sql
-SELECT project_id, enabled, target_bucket
-FROM dataplane_config
-WHERE project_id = $1;
-```
+| Reader | Query |
+|---|---|
+| log-router service, per project | `SELECT project_id, enabled, target_bucket FROM dataplane_config WHERE project_id = $1` |
+| log-router `apply-lifecycle` admin tool | `SELECT project_id, target_bucket FROM dataplane_config WHERE enabled = true AND target_bucket != '' LIMIT 10001` |
 
-Parameters: `$1` = Keystone project UUID (string).
+`$1` is the event's `initiator.project_id`. Both SELECT lists are explicit, so adding columns does not break them.
 
-**If the query returns zero rows:** treat as disabled. The project has not opted in.
-Do NOT surface this as an error. Route only to the `ccadmin/master` bucket.
+## What each result means
 
-**If the query returns a row with `enabled = false`:** same as missing — route only
-to the `ccadmin/master` bucket. Do not route to `target_bucket`.
+| Result | log-router does |
+|---|---|
+| no row | Project is disabled. Not an error. Admin copy only; customer copy counted in `log_router_events_dropped_total{reason="tenant_not_enabled"}`. Result is not cached. |
+| `enabled = false` | Same as no row, except the result is cached. |
+| `enabled = true` | Admin copy, plus customer copy to account `AUTH_<project_id>`, container `target_bucket`. |
+| `enabled = true`, `target_bucket = ''` | Same as above with container `hermes-audit`. No warning. |
 
-**If the query returns a row with `enabled = true`:** route to both `ccadmin/master`
-and `target_bucket`. The `target_bucket` value is validated by hermez at write time
-(RFC-1123 subset, 3–63 chars, lowercase + digits + hyphens). Trust it.
+hermez writes `hermes-audit` itself when a PUT has `enabled=true` and no bucket (#371), so the empty case only occurs for rows written before that change. log-router does not validate `target_bucket`; hermez validates it on PUT (`^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$`, no `--`).
 
----
+The admin copy doesn't depend on this table: it is written before any config lookup (`internal/router/router.go:390-407`), and the admin ingest path has no config client.
 
-## Batch lookup (optional optimisation)
+## Caching and propagation
 
-If log-router processes events for many projects in one batch, a `WHERE project_id = ANY($1)`
-query is safe:
+- In-memory cache per log-router process.
+- TTL: `LOG_ROUTER_CACHE_TTL`, default `5m`. `0` turns caching off.
+- At most 1000 entries; when full, the entry with the earliest expiry is evicted.
+- Only rows that were found are cached. No-row results go to Postgres every time.
+- On expiry the entry is deleted and the next lookup queries Postgres. There is no background refresh and no push from hermez.
 
-```sql
-SELECT project_id, enabled, target_bucket
-FROM dataplane_config
-WHERE project_id = ANY($1)
-  AND enabled = TRUE;
-```
+So after a PUT or DELETE in hermez:
 
-Projects absent from the result → disabled.
+| Change | Seen by log-router |
+|---|---|
+| Project had no row, now enabled | next lookup |
+| Project had a row, changed or deleted | when the cached entry expires, up to 5m |
 
----
+## Failure behaviour
 
-## Caching
+| Condition | Behaviour |
+|---|---|
+| Postgres unreachable at log-router start | 10 pings with backoff within 60s, then fatal exit. |
+| Postgres error, entry cached | Cached entry used until it expires. |
+| Postgres error, no cached entry, at ingest | Error returned, not treated as disabled. Counted in `log_router_ingest_errors_total{reason="config_lookup"}`. RabbitMQ message requeued; after `LOG_ROUTER_RABBITMQ_MAX_REDELIVERIES` (default 3) rejected to the DLX if configured. |
+| Postgres error, no cached entry, at flush | Customer partition skipped and kept in the buffer for the next flush. Counted in `log_router_config_lookup_errors_total`. |
+| Any Postgres error | Admin copy continues. Nothing is written to a project container unless a lookup confirmed `enabled = true`. |
+| `LOG_ROUTER_DB_URL` unset | Not a failure mode but worth knowing: log-router uses a static config with every project enabled and no bucket, and writes every project's customer copy into the admin container under `default/YYYY/...`. Metering off. |
 
-Log-router SHOULD cache results with a TTL of 30 seconds (configurable). This prevents
-hammering postgres on every event.
+## Not implemented
 
-Cache invalidation is best-effort. Eventual consistency of up to 30 seconds is acceptable
-for a routing-toggle; operators and customers understand that toggling takes effect within
-a short window, not instantly.
+- Batch lookup `WHERE project_id = ANY($1) AND enabled = TRUE`. The service only does per-project lookups. The admin tool uses the different query listed above.
 
-When the cache entry expires, re-query postgres. There is no push notification from hermez.
+## Not verified from code
 
----
-
-## Failure modes
-
-| Condition | Required behaviour |
-|-----------|-------------------|
-| Postgres unreachable | **Fail closed** — treat all projects as disabled. Route only to `ccadmin/master`. Log the error. Do NOT spray events into a bucket you cannot confirm is opted-in. |
-| Query returns unexpected error | Same as unreachable — fail closed. |
-| `target_bucket` empty on an `enabled=true` row | Should not happen (hermez validates at write time). Treat as disabled; log a warning with the project_id. |
-
-The ccadmin/master routing path is unconditional and must never consult this config.
-A hermez/postgres outage stops project-bucket routing only; the admin path is unaffected.
-
----
-
-## Schema stability
-
-Hermez will not remove or rename existing columns without a coordination notice and a
-postgres migration. Log-router may safely rely on `project_id`, `enabled`, and
-`target_bucket` remaining stable.
-
-New columns may be added in future migrations. Log-router's `SELECT` list is explicit
-(not `SELECT *`) so additions are non-breaking.
-
----
-
-## Credentials
-
-The `log-router` postgres login role is provisioned by the hermes Helm chart's
-`postgres-ng` seed values. Hermez's migration 001 grants it SELECT on `dataplane_config`
-directly:
-
-```sql
-GRANT SELECT ON dataplane_config TO "log-router";
-```
-
-The chart must:
-
-1. Create the `log-router` login role with a password (via postgres-ng seed).
-2. Ensure the role exists before hermez starts — hermez's `GRANT ... TO "log-router"`
-   requires the role to exist at migration time. The postgres-ng seed runs before the
-   hermez pod starts, so ordering is handled by the helm chart's init sequence.
-
-Log-router does **not** run any migrations against the hermez database. It connects
-to postgres, queries `dataplane_config`, and does nothing else schema-related.
+- Which Postgres cluster and database name the deployed log-router DSN uses. log-router's README example uses database `log-router`; the table lives in hermez's database (default `hermes`).
+- How the `log-router` role is provisioned and in what order relative to hermez.
+- Effective privileges of the `log-router` role beyond the SELECT grant.
+- Any commitment on future schema changes. There is one migration today; column removals or renames are a process question, not something the code enforces.
