@@ -39,7 +39,7 @@ Via Makefile:
 Hermes can be used via our [Converged Cloud Dashboard Elektra](https://github.com/sapcc/elektra) 
 via "Auditing" or directly with the http API.
 
-The Hermes binary is server only. For a client CLI tool please refer to the [hermesctl](https://github.com/sapcc/hermes-ctl) project.
+The Hermes binary is server only. For a client CLI tool please refer to the [hermescli](https://github.com/sapcc/hermescli) project.
 
 # Operating Hermes
 
@@ -55,7 +55,22 @@ Please refer to the [configuration guide](./config.md) for details.
 
 ## Starting Hermes
 
-Running the hermes binary will start the Server listening on `http://localhost:8788`
+```sh
+hermes -f /path/to/hermes.conf
+```
+
+Without `-f`, Hermes reads `hermes.conf` from the current working directory if it
+exists. By default the server listens on `0.0.0.0:8788` (`API.ListenAddress`).
+
+Besides Keystone and OpenSearch, a normal deployment needs:
+
+* Postgres for the per-project dataplane-config (`HERMES_PG_*` variables). The
+  schema migration grants read access to a `log-router` role, which must exist.
+* Optionally RabbitMQ (`HERMES_AUDIT_RABBITMQ_*` variables) for the audit events
+  Hermes itself emits when dataplane-config changes. Without it those events are
+  dropped.
+
+`etc/hermes-mock.conf` runs Hermes without any of these backends for local testing.
 
 ## Configuration of Keystone Middleware, RabbitMQ, Logstash, OpenSearch
 
@@ -79,9 +94,10 @@ events, and adding CADF mappings to events that do not currently have an
 audit map in keystone middleware due to their lack of consistent event details.
 Ex: Designate Events
 
-From there the data is loaded into OpenSearch where we have a rolling
-index that is created from a template to hold audit details via daily
-index.
+From there the data is loaded into OpenSearch. Hermes reads all events from a
+single index (data stream) named `hermes`. Each document has a `tenant_ids`
+field, and Hermes filters on it so that a token only sees its own project's or
+domain's events.
 
 Hermes is used as the API to query this OpenSearch to provide API events
 to the OpenStack Dashboard. 
@@ -97,4 +113,5 @@ Hermes has prometheus integration located at the /metrics endpoint. Custom metri
 | hermes_request_duration_seconds | Duration of a Hermes request |
 | hermes_requests_inflight |  Number of inflight HTTP requests served by Hermes |
 | hermes_response_size_bytes | Size of the Hermes response (e.g. to retrieve events) |
-| hermes_storage_errors_count | Number of technical errors occurred when accessing OpenSearch storage | 
+| hermes_storage_errors_count | Number of technical errors occurred when accessing OpenSearch storage |
+| hermes_rate_limit_exceeded_total | Number of requests rejected by the rate limiter, by `handler` (`default` or `download`) | 

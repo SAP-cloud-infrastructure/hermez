@@ -17,14 +17,6 @@ import (
 
 // Prometheus metrics counters
 var (
-	authErrorsCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "hermes_logon_errors_count",
-		Help: "Number of logon errors occurred",
-	})
-	authFailuresCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "hermes_logon_failures_count",
-		Help: "Number of logon attempts failed due to wrong credentials",
-	})
 	storageErrorsCounter = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "hermes_storage_errors_count",
 		Help: "Number of technical errors occurred when accessing underlying storage (i.e. OpenSearch)",
@@ -39,6 +31,9 @@ var (
 	handlerMetricsMux sync.RWMutex
 )
 
+// responseSizeBuckets are the upper bounds of hermes_response_size_bytes.
+var responseSizeBuckets = prometheus.ExponentialBuckets(256, 4, 10)
+
 // handlerMetricSet holds the metrics for a specific handler
 type handlerMetricSet struct {
 	durationHistogram     *prometheus.HistogramVec
@@ -47,7 +42,7 @@ type handlerMetricSet struct {
 }
 
 func init() {
-	prometheus.MustRegister(authErrorsCounter, authFailuresCounter, storageErrorsCounter, rateLimitExceededCounter)
+	prometheus.MustRegister(storageErrorsCounter, rateLimitExceededCounter)
 }
 
 // InstrumentInflight wraps a handler with inflight request metrics
@@ -114,7 +109,9 @@ func getOrCreateHandlerMetrics(handlerName string) *handlerMetricSet {
 				Name:        "hermes_response_size_bytes",
 				Help:        "Size of the Hermes response (e.g. to a query)",
 				ConstLabels: prometheus.Labels{"handler": handlerName},
-				Buckets:     prometheus.LinearBuckets(100, 100, 10),
+				// 256 B up to 64 MiB in steps of 4x: covers single events
+				// (~1 KB), list pages (a few KB) and large downloads (MBs).
+				Buckets: responseSizeBuckets,
 			},
 			[]string{},
 		)

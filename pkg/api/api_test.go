@@ -6,11 +6,13 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -445,3 +447,33 @@ func (s *attributeLimitCapturingStorage) GetAttributes(_ context.Context, filter
 }
 
 func (s *attributeLimitCapturingStorage) MaxLimit() uint { return s.maxLimit }
+
+// TestVersionLinks_HostIsNotShared makes sure the self link written by
+// GET /v1/ is per request. The Host of one caller must not show up in the
+// GET / answer served to another, and concurrent GET /v1/ must not race.
+func TestVersionLinks_HostIsNotShared(t *testing.T) {
+	router := setupTest(t)
+
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			req := httptest.NewRequest(http.MethodGet, "/v1/", http.NoBody)
+			req.Host = fmt.Sprintf("host%d.example", i)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			want := fmt.Sprintf("http://host%d.example/v1/", i)
+			if !strings.Contains(rec.Body.String(), want) {
+				t.Errorf("GET /v1/ with Host %s: body %s does not contain %s", req.Host, rec.Body.String(), want)
+			}
+		})
+	}
+	wg.Wait()
+
+	rec := doGet(t, router, "/")
+	if strings.Contains(rec.Body.String(), ".example/v1/") {
+		t.Errorf("GET / leaked a Host header from an earlier GET /v1/: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"href": "/v1/"`) {
+		t.Errorf("GET / self link changed: %s", rec.Body.String())
+	}
+}

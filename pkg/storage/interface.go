@@ -29,43 +29,6 @@ var ErrUnknownAttributeName = errors.New("unknown attribute_name")
 // failure rather than treating a partial page as complete.
 var ErrPartialResults = errors.New("search results are incomplete")
 
-// Status contains Prometheus status strings
-// TODO: Determine if we want a similar setup for OpenSearch.
-type Status string
-
-const (
-	// StatusSuccess means success
-	StatusSuccess Status = "success"
-	// StatusError means error
-	StatusError = "error"
-)
-
-// ErrorType enumerates different Prometheus error types
-type ErrorType string
-
-const (
-	// ErrorNone means no error
-	ErrorNone ErrorType = ""
-	// ErrorTimeout means that a timeout occurred while processing the request
-	ErrorTimeout = "timeout"
-	// ErrorCanceled means that the query was cancelled (to protect the service from malicious requests)
-	ErrorCanceled = "canceled"
-	// ErrorExec means unspecified error happened during query execution
-	ErrorExec = "execution"
-	// ErrorBadData means the API parameters where invalid
-	ErrorBadData = "bad_data"
-	// ErrorInternal means some unspecified internal error happened
-	ErrorInternal = "internal"
-)
-
-// Response encapsulates a generic response of a Prometheus API
-type Response struct {
-	Status    Status    `json:"status"`
-	Data      []any     `json:"data,omitempty"`
-	ErrorType ErrorType `json:"errorType,omitempty"`
-	Error     string    `json:"error,omitempty"`
-}
-
 // Storage is an interface that wraps the underlying event storage mechanism.
 // Because it is an interface, the real implementation can be mocked away in unit tests.
 //
@@ -118,15 +81,6 @@ type AttributeFilter struct {
 type eventListWithTotal struct {
 	Total  int          `json:"total"`
 	Events []cadf.Event `json:"events"`
-}
-
-// AttributeValueList is used for holding unique attributes
-type AttributeValueList []AttributeValue
-
-// AttributeValue contains the return values for an attribute call.
-type AttributeValue struct {
-	Value string `json:"value"`
-	Count int64  `json:"-"` // Json to not include it in JSON return
 }
 
 // validateTenantID ensures the tenant ID is valid for querying.

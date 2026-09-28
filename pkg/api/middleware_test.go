@@ -220,3 +220,41 @@ func TestRateLimitMiddleware_PrometheusCounter(t *testing.T) {
 		t.Fatalf("expected at least 1 rejection, counter=%v", got)
 	}
 }
+
+// TestRegisteredMetricNames checks the counters registered at package init.
+// hermes_logon_* were exported but never incremented, so they are gone; the
+// storage error counter keeps its existing name for dashboards.
+func TestRegisteredMetricNames(t *testing.T) {
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make(map[string]bool)
+	for _, mf := range families {
+		names[mf.GetName()] = true
+	}
+	for _, gone := range []string{"hermes_logon_errors_count", "hermes_logon_failures_count"} {
+		if names[gone] {
+			t.Errorf("metric %s is still registered", gone)
+		}
+	}
+	if !names["hermes_storage_errors_count"] {
+		t.Error("metric hermes_storage_errors_count is not registered")
+	}
+}
+
+// TestResponseSizeBuckets checks that typical responses land in a finite
+// bucket. The old buckets stopped at 1000 bytes, so almost everything was +Inf.
+func TestResponseSizeBuckets(t *testing.T) {
+	if got, want := responseSizeBuckets[0], 256.0; got != want {
+		t.Errorf("smallest bucket = %v, want %v", got, want)
+	}
+	if got, want := responseSizeBuckets[len(responseSizeBuckets)-1], float64(64<<20); got != want {
+		t.Errorf("largest bucket = %v, want %v (64 MiB)", got, want)
+	}
+	for _, size := range []float64{1274, 2942, 50 << 20} { // event detail, event list, big download
+		if size > responseSizeBuckets[len(responseSizeBuckets)-1] {
+			t.Errorf("a %v byte response falls into +Inf", size)
+		}
+	}
+}

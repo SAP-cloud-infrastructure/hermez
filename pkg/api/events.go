@@ -4,12 +4,14 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
-	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -46,11 +48,17 @@ var validSortTopics = map[string]bool{
 	"initiator_name": true,
 	"initiator_type": true,
 	"request_path":   true,
-	// deprecated
-	"source":        true,
+	// deprecated alias of target_type, kept as its own storage field mapping
 	"resource_type": true,
-	"resource_name": true,
-	"event_type":    true,
+}
+
+// deprecatedSortTopics maps old sort keys to the topic they stand for. The
+// storage layer only knows the new names, so they are rewritten before the
+// filter is built. resource_name was also accepted in the past, but no stored
+// field backs it, so it is now rejected like any other unknown topic.
+var deprecatedSortTopics = map[string]string{
+	"source":     "observer_type",
+	"event_type": "action",
 }
 
 var validSortDirections = map[string]bool{"asc": true, "desc": true}
@@ -81,8 +89,11 @@ func parseSortParam(res http.ResponseWriter, req *http.Request) ([]hermes.FieldO
 			http.Error(res, "Invalid sort parameter: field name cannot be empty", http.StatusBadRequest)
 			return nil, errors.New("invalid sort parameter")
 		}
+		if topic, ok := deprecatedSortTopics[sortfield]; ok {
+			sortfield = topic
+		}
 		if !validSortTopics[sortfield] {
-			msg := fmt.Sprintf("not a valid topic: %s, valid topics: %v", sortfield, reflect.ValueOf(validSortTopics).MapKeys())
+			msg := fmt.Sprintf("not a valid topic: %s, valid topics: %s", sortfield, strings.Join(slices.Sorted(maps.Keys(validSortTopics)), ", "))
 			http.Error(res, msg, http.StatusBadRequest)
 			return nil, errors.New(msg)
 		}
@@ -167,18 +178,32 @@ func parseTimeParam(res http.ResponseWriter, req *http.Request) (map[string]stri
 	return timeRange, nil
 }
 
+// searchTooLong reports whether the "search" query parameter is longer than
+// storage.MaxSearchQueryLength runes. If so, it has already written a 400.
+// Both the list and the download handler call it, because both pass the value
+// to OpenSearch as a free-text query.
+func searchTooLong(res http.ResponseWriter, req *http.Request) bool {
+	if utf8.RuneCountInString(req.FormValue("search")) > storage.MaxSearchQueryLength {
+		http.Error(res, "search query is too long", http.StatusBadRequest)
+		return true
+	}
+	return false
+}
+
 // buildEventFilter constructs an EventFilter from request query parameters.
 // sortSpec and timeRange should come from parseSortParam/parseTimeParam.
 // offset and limit are caller-supplied (differ between List and Download).
 func buildEventFilter(req *http.Request, sortSpec []hermes.FieldOrder, timeRange map[string]string, offset, limit uint) hermes.EventFilter {
+	// The legacy parameter names (source, resource_type, user_name,
+	// event_type) are only used when the current name is not given.
 	return hermes.EventFilter{
-		ObserverType:  req.FormValue("observer_type") + req.FormValue("source"),
-		TargetType:    req.FormValue("target_type") + req.FormValue("resource_type"),
+		ObserverType:  cmp.Or(req.FormValue("observer_type"), req.FormValue("source")),
+		TargetType:    cmp.Or(req.FormValue("target_type"), req.FormValue("resource_type")),
 		TargetID:      req.FormValue("target_id"),
-		InitiatorID:   req.FormValue("initiator_id") + req.FormValue("user_name"),
+		InitiatorID:   cmp.Or(req.FormValue("initiator_id"), req.FormValue("user_name")),
 		InitiatorType: req.FormValue("initiator_type"),
 		InitiatorName: req.FormValue("initiator_name"),
-		Action:        req.FormValue("action") + req.FormValue("event_type"),
+		Action:        cmp.Or(req.FormValue("action"), req.FormValue("event_type")),
 		Outcome:       req.FormValue("outcome"),
 		Search:        req.FormValue("search"),
 		RequestPath:   req.FormValue("request_path"),
@@ -234,12 +259,12 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logg.Debug("api.ListEvents: Create filter")
-	filter := buildEventFilter(req, sortSpec, timeRange, offset, limit)
-	if utf8.RuneCountInString(filter.Search) > storage.MaxSearchQueryLength {
-		http.Error(res, "search query is too long", http.StatusBadRequest)
+	if searchTooLong(res, req) {
 		return
 	}
+
+	logg.Debug("api.ListEvents: Create filter")
+	filter := buildEventFilter(req, sortSpec, timeRange, offset, limit)
 
 	logg.Debug("api.ListEvents: call hermes.GetEvents()")
 	indexID, err := getIndexID(token, req, res)
@@ -278,8 +303,11 @@ func (p *v1Provider) ListEvents(res http.ResponseWriter, req *http.Request) {
 		req.Form.Set("offset", strconv.FormatUint(uint64(filter.Offset+filter.Limit), 10))
 		eventList.NextURL = fmt.Sprintf("%s://%s%s?%s", protocol, req.Host, req.URL.Path, req.Form.Encode())
 	}
-	if filter.Offset >= filter.Limit {
-		req.Form.Set("offset", strconv.FormatUint(uint64(filter.Offset-filter.Limit), 10))
+	// Any offset > 0 has a previous page. When the offset is smaller than the
+	// limit, the previous page starts at 0 instead of going negative.
+	if filter.Offset > 0 {
+		prevOffset := filter.Offset - min(filter.Offset, filter.Limit)
+		req.Form.Set("offset", strconv.FormatUint(uint64(prevOffset), 10))
 		eventList.PrevURL = fmt.Sprintf("%s://%s%s?%s", protocol, req.Host, req.URL.Path, req.Form.Encode())
 	}
 
@@ -302,6 +330,9 @@ func (p *v1Provider) DownloadEvents(res http.ResponseWriter, req *http.Request) 
 	}
 	timeRange, err := parseTimeParam(res, req)
 	if err != nil {
+		return
+	}
+	if searchTooLong(res, req) {
 		return
 	}
 
@@ -398,8 +429,23 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		logg.Debug("attribute_name empty")
 		return
 	}
-	maxdepth, _ := strconv.ParseUint(req.FormValue("max_depth"), 10, 32) //nolint:errcheck
-	limit, _ := strconv.ParseUint(req.FormValue("limit"), 10, 32)        //nolint:errcheck
+	var maxdepth, limit uint64
+	if s := req.FormValue("max_depth"); s != "" {
+		parsed, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			http.Error(res, "Invalid max_depth value", http.StatusBadRequest)
+			return
+		}
+		maxdepth = parsed
+	}
+	if s := req.FormValue("limit"); s != "" {
+		parsed, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			http.Error(res, "Invalid limit value", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
 
 	// Default to the smaller of the historic API default and the configured
 	// storage maximum. This preserves omitted (and zero) limit semantics for
@@ -445,10 +491,11 @@ func (p *v1Provider) GetAttributes(res http.ResponseWriter, req *http.Request) {
 		storageErrorsCounter.Add(1)
 		return
 	}
+	// A known attribute without any values (e.g. a project with no events yet)
+	// is an empty list, not a missing resource. Unknown names were already
+	// rejected above with ErrUnknownAttributeName.
 	if attribute == nil {
-		err := fmt.Errorf("attribute %s could not be found in project %s", queryName, indexID)
-		http.Error(res, err.Error(), http.StatusNotFound)
-		return
+		attribute = []string{}
 	}
 	ReturnESJSON(res, http.StatusOK, attribute)
 }

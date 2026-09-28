@@ -6,6 +6,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/gorilla/mux"
 
@@ -159,8 +160,12 @@ func (api *V1API) AddTo(c *httpapi.Composer) {
 func (api *V1API) getVersion(w http.ResponseWriter, r *http.Request) {
 	httpapi.IdentifyEndpoint(r, "/v1")
 
-	// Update the self link with the actual request URL
+	// Update the self link with the actual request URL. Links is cloned first:
+	// the struct copy shares its backing array with api.versionData (and with
+	// VersionAPI), so writing through it would race between requests and leak
+	// the caller's Host header into every later response.
 	versionData := api.versionData
+	versionData.Links = slices.Clone(api.versionData.Links)
 	versionData.Links[0].URL = fmt.Sprintf("%s://%s/v1/", getProtocol(r), r.Host)
 
 	ReturnESJSON(w, http.StatusOK, map[string]any{"version": versionData})

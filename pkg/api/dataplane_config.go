@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -27,6 +28,22 @@ import (
 // separately because they are prohibited by both AWS S3 and Ceph RGW.
 var s3BucketNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$`)
 
+// projectIDPattern is what we accept as {project_id} in the dataplane-config
+// path. Keystone project IDs are 32 hex characters; the pattern is looser but
+// keeps junk out of the table log-router reads, and 64 is the width of the
+// project_id column, so longer values would fail in Postgres with a 500.
+var projectIDPattern = regexp.MustCompile(`^[0-9A-Za-z_-]{1,64}$`)
+
+// checkProjectID writes a 400 and returns false when projectID is not a
+// plausible project ID. Call it before touching the routing store.
+func checkProjectID(res http.ResponseWriter, projectID string) bool {
+	if !projectIDPattern.MatchString(projectID) {
+		http.Error(res, "project_id must be 1-64 characters of letters, digits, '-' or '_'", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
 // dataplaneConfigRequest is the shape accepted on PUT.
 // We use strict decoding (DisallowUnknownFields) so unknown fields → 400.
 type dataplaneConfigRequest struct {
@@ -39,6 +56,9 @@ type dataplaneConfigRequest struct {
 func (p *v1Provider) GetDataplaneConfig(res http.ResponseWriter, req *http.Request) {
 	projectID := mux.Vars(req)["project_id"]
 	if _, ok := p.authDataplaneConfig(res, req, projectID); !ok {
+		return
+	}
+	if !checkProjectID(res, projectID) {
 		return
 	}
 
@@ -93,6 +113,11 @@ func (p *v1Provider) PutDataplaneConfig(res http.ResponseWriter, req *http.Reque
 		})
 	}
 
+	if !checkProjectID(res, projectID) {
+		recordAttempt(http.StatusBadRequest, nil)
+		return
+	}
+
 	// Content-Type enforcement
 	if ct := req.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		http.Error(res, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
@@ -103,11 +128,25 @@ func (p *v1Provider) PutDataplaneConfig(res http.ResponseWriter, req *http.Reque
 	// Body size cap: 64 KiB
 	req.Body = http.MaxBytesReader(res, req.Body, 64*1024)
 
+	// Decode into a pointer so that a literal `null` body is detectable: it
+	// would otherwise decode to the zero value and silently disable routing.
+	// The body must also hold exactly one JSON value; anything after it
+	// (a second object, stray text) is rejected instead of ignored.
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()
-	var body dataplaneConfigRequest
+	var body *dataplaneConfigRequest
 	if err := decoder.Decode(&body); err != nil {
 		http.Error(res, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		recordAttempt(http.StatusBadRequest, nil)
+		return
+	}
+	if body == nil {
+		http.Error(res, "invalid request body: must be a JSON object", http.StatusBadRequest)
+		recordAttempt(http.StatusBadRequest, nil)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		http.Error(res, "invalid request body: unexpected data after the JSON object", http.StatusBadRequest)
 		recordAttempt(http.StatusBadRequest, nil)
 		return
 	}
@@ -168,6 +207,10 @@ func (p *v1Provider) DeleteDataplaneConfig(res http.ResponseWriter, req *http.Re
 	userID := token.Context.Auth["user_id"]
 	if userID == "" {
 		http.Error(res, "token missing user identity", http.StatusUnauthorized)
+		return
+	}
+
+	if !checkProjectID(res, projectID) {
 		return
 	}
 
