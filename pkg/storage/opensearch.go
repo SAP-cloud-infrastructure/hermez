@@ -15,8 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/errmask"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"github.com/sapcc/go-api-declarations/cadf"
 	"github.com/sapcc/go-bits/errext"
 	"github.com/sapcc/go-bits/logg"
@@ -62,12 +63,33 @@ func (os *OpenSearch) init() {
 		// DisableKeepAlives: false (default) - Keep-alive enabled for connection reuse
 	}
 
-	// Create client configuration
+	var err error
+	os.osClient, err = newOpenSearchClient(url, username, password, transport)
+	if err != nil {
+		// TODO - Add instrumentation here for failed opensearch connection
+		panic(err)
+	}
+}
+
+// newOpenSearchClient builds the API client for the single load-balanced
+// OpenSearch endpoint. Basic auth is only set when both credentials are given.
+func newOpenSearchClient(url, username, password string, transport http.RoundTripper) (*opensearchapi.Client, error) {
 	config := opensearchapi.Config{
 		Client: opensearch.Config{
 			Addresses: []string{url},
 			Transport: transport, // Use custom transport with better pooling
+			// v5 injects a node-role router and starts node discovery by default.
+			// We talk to one load-balanced URL, so never discover nodes: all
+			// requests must go to the configured address, as with v4. The
+			// router object itself can only be dropped via OPENSEARCH_GO_ROUTER=false;
+			// without discovery it never learns any address but this one.
+			DiscoverNodesOnStart:  new(false),
+			DiscoverNodesInterval: 0,
 		},
+		// v5 turns shard failures into Go errors by default. Mask them as v4
+		// did; searchResultIsPartial checks _shards.failed and timed_out in the
+		// response body and maps them to ErrPartialResults.
+		Errors: errmask.New(errmask.All),
 	}
 
 	// Add basic auth if credentials are provided
@@ -76,12 +98,7 @@ func (os *OpenSearch) init() {
 		config.Client.Password = password
 	}
 
-	var err error
-	os.osClient, err = opensearchapi.NewClient(config)
-	if err != nil {
-		// TODO - Add instrumentation here for failed opensearch connection
-		panic(err)
-	}
+	return opensearchapi.NewClient(config)
 }
 
 // osFieldMapping is an alias to the shared CADFFieldMapping for consistency.
@@ -249,11 +266,7 @@ func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenant
 	logg.Debug("OpenSearch query: %s", string(bodyJSON))
 
 	// Execute search
-	searchResp, err := os.client().Search(ctx, &opensearchapi.SearchReq{
-		Indices: []string{index},
-		Body:    bytes.NewReader(bodyJSON),
-		Params:  opensearchapi.SearchParams{AllowPartialSearchResults: new(false)},
-	})
+	searchResp, err := os.search(ctx, index, bodyJSON)
 
 	if err != nil {
 		if osErr, ok := errext.As[*opensearch.StructError](err); ok {
@@ -265,7 +278,7 @@ func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenant
 		return nil, 0, err
 	}
 
-	logg.Debug("Got %d hits", searchResp.Hits.Total.Value)
+	logg.Debug("Got %d hits", hitsTotal(searchResp.Hits))
 
 	// A timed-out search returns HTTP 200 with partial hits and a DEFLATED
 	// hits.total.value. Returning that as success would silently truncate an
@@ -288,7 +301,7 @@ func (os *OpenSearch) GetEvents(ctx context.Context, filter *EventFilter, tenant
 		events = append(events, &de)
 	}
 
-	total := searchResp.Hits.Total.Value
+	total := hitsTotal(searchResp.Hits)
 
 	return events, total, nil
 }
@@ -340,18 +353,14 @@ func (os *OpenSearch) GetEvent(ctx context.Context, eventID, tenantID string) (*
 
 	logg.Debug("Query: %s", string(bodyJSON))
 
-	searchResp, err := os.client().Search(ctx, &opensearchapi.SearchReq{
-		Indices: []string{index},
-		Body:    bytes.NewReader(bodyJSON),
-		Params:  opensearchapi.SearchParams{AllowPartialSearchResults: new(false)},
-	})
+	searchResp, err := os.search(ctx, index, bodyJSON)
 
 	if err != nil {
 		logg.Debug("Query failed: %s", err.Error())
 		return nil, err
 	}
 
-	total := searchResp.Hits.Total.Value
+	total := hitsTotal(searchResp.Hits)
 	logg.Debug("Results: %d", total)
 	if searchResultIsPartial(searchResp) {
 		logg.Error("OpenSearch event query returned partial results for tenant %s; returning ErrPartialResults", tenantID)
@@ -430,11 +439,7 @@ func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter
 
 	logg.Debug("OpenSearch aggregation query: %s", string(bodyJSON))
 
-	searchResp, err := os.client().Search(ctx, &opensearchapi.SearchReq{
-		Indices: []string{index},
-		Body:    bytes.NewReader(bodyJSON),
-		Params:  opensearchapi.SearchParams{AllowPartialSearchResults: new(false)},
-	})
+	searchResp, err := os.search(ctx, index, bodyJSON)
 
 	if err != nil {
 		if osErr, ok := errext.As[*opensearch.StructError](err); ok {
@@ -464,7 +469,7 @@ func (os *OpenSearch) GetAttributes(ctx context.Context, filter *AttributeFilter
 		} `json:"attributes"`
 	}
 
-	if err := json.Unmarshal(searchResp.Aggregations, &aggResult); err != nil {
+	if err := json.Unmarshal(aggregationsJSON(searchResp.Aggregations), &aggResult); err != nil {
 		logg.Error("Failed to parse aggregations: %v", err)
 		return nil, err
 	}
@@ -522,5 +527,57 @@ func searchTimeout() string {
 // incomplete. A failed shard can return HTTP 200 with incomplete hits or
 // aggregation buckets, just like a timed-out search.
 func searchResultIsPartial(resp *opensearchapi.SearchResp) bool {
-	return resp.Timeout || resp.Shards.Failed > 0
+	return resp.TimedOut || resp.Shards.Failed > 0
+}
+
+// search sends a raw JSON search body to the given index with
+// allow_partial_search_results=false.
+func (os *OpenSearch) search(ctx context.Context, index string, bodyJSON []byte) (*opensearchapi.SearchResp, error) {
+	resp, err := os.client().Search(ctx, &opensearchapi.SearchReq{
+		Indices:    []string{index},
+		BodyReader: bytes.NewReader(bodyJSON),
+		Params:     &opensearchapi.SearchParams{AllowPartialSearchResults: new(false)},
+	})
+	// If the error mask gets overridden (e.g. via OPENSEARCH_GO_ERROR_MASK),
+	// shard failures come back as a partial-failure error next to a fully
+	// decoded response. Drop the error so the caller's searchResultIsPartial
+	// check returns ErrPartialResults, same as with the mask in place.
+	if err != nil && resp != nil && opensearchapi.IsPartialFailure(err) {
+		return resp, nil
+	}
+	return resp, err
+}
+
+// hitsTotal returns hits.total, which OpenSearch sends either as an object
+// with a value field or, with rest_total_hits_as_int, as a plain number.
+// A missing total counts as 0.
+func hitsTotal(hits opensearchapi.SearchHitsMetadata) int {
+	if hits.Total == nil {
+		return 0
+	}
+	if th, err := hits.Total.TotalHits(); err == nil {
+		return int(th.Value)
+	}
+	if n, err := hits.Total.Int64(); err == nil {
+		return int(n)
+	}
+	return 0
+}
+
+// aggregationsJSON re-assembles the raw "aggregations" object from the
+// decoded map, so that it can be parsed into a hermes-specific struct.
+// A response without aggregations yields nil, which fails to unmarshal.
+func aggregationsJSON(aggs map[string]opensearchapi.CommonAggregationsAggregate) []byte {
+	if aggs == nil {
+		return nil
+	}
+	raw := make(map[string]json.RawMessage, len(aggs))
+	for name, agg := range aggs {
+		raw[name] = agg.RawJSON()
+	}
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return out
 }
