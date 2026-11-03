@@ -59,6 +59,7 @@ The digest chain lets you detect any tampering or deletion after the fact. See [
   openstack role add --user <username> --project <project-id> audit_admin
   ```
 - The **`objectstore_admin`** role in the same project, in addition to `audit_admin`. `audit_admin` does not include it. Enabling routing creates the destination bucket in your project with your own token, and the object store only accepts that from a token carrying this role. Without it, enabling fails with 403.
+- Only where the operator turned on writer role assignment: the Log Router writer user needs the `objectstore_admin` role in your project, so that it can write with a token scoped to your project and your project owns every object. In most domains the operator has already given it the role for every project, and enabling just checks that. If the role is missing, enabling assigns it with your token. That needs a token that may assign roles in the project (role `admin` or `role_admin`). Without it, enabling fails with 403 and names the `openstack role add` command a project admin can run; once the role is there, enabling works with your token too. The writer user keeps the role after you disable routing.
 - Free object storage quota in the project. The bucket belongs to your project, so the events count against your quota and billing, not ours. Enabling checks this by writing a tiny object (`.hermes-enable-probe`) into the bucket and deleting it again.
 
 ### Step 1 — Enable dataplane routing with hermescli
@@ -81,11 +82,15 @@ curl -si -X PUT \
 
 Enabling needs a token scoped to the project in the path. A token scoped elsewhere, including a cloud administrator's, is rejected with 409, because the bucket has to be created by the project itself.
 
+Where writer role assignment is on, Hermez first makes sure the Log Router writer user has the `objectstore_admin` role in your project, as described in the prerequisites, and creates nothing if that fails. If it assigned the role and a later step fails, the role stays.
+
 On enable, Hermez uses your token to create the `hermes-audit` container (or the `target_bucket` you gave) in your project if it does not exist, and adds entries to its access lists so that your project can read it and Log Router can read and write it. Log Router needs read access as well, because each hour's digest is chained to the previous one. Running it again is safe. It keeps any other entries already in the access lists, and does not change them at all when the entries are already there. Then it writes a tiny object `.hermes-enable-probe` to check that the project has quota left, and deletes it again. If the bucket was already migrated by the operator but is not yet handed over to your project, the enable succeeds and the config is saved; the bucket stays as it is until the handover. Otherwise nothing is saved unless all of this works:
 
 | Status | Message | What to do |
 |---|---|---|
+| 401 | your token was rejected by the identity service; get a new token | Your token expired or was revoked. Get a new token and try again. |
 | 403 | your token needs the objectstore_admin role in this project | Get the `objectstore_admin` role in the project and use a new token. |
+| 403 | your token may not assign roles in this project, so Hermes cannot give the dataplane writer user the objectstore_admin role; ... | Ask a project admin (role `admin` or `role_admin`) to run the `openstack role add` command from the message, or to enable dataplane themselves. Then enable again. |
 | 403 | object storage denied the request | The object store refused the request for another reason. Check the bucket's access lists. |
 | 409 | enable dataplane with a token scoped to the project | Use a token scoped to the project in the path, not a domain-scoped token or one for another project. |
 | 409 | container `<name>` exists but is owned by another project | The bucket was not migrated. Ask the operator to migrate it, or choose another `target_bucket`. |
@@ -93,8 +98,10 @@ On enable, Hermez uses your token to create the `hermes-audit` container (or the
 | 409 | container name is not available | Choose another `target_bucket`. |
 | 409 | project has no free object storage quota | Free up space or raise the project's object storage quota. |
 | 502 | | The object store failed or could not be reached. Try again. |
+| 502 | cannot check the dataplane writer role, cannot determine the identity endpoint, or a message starting with "identity service" | Keystone failed or could not be reached. Try again. |
 | 503 | object storage for dataplane is not available in this region | The object store this feature uses does not exist in this region. |
 | 503 | dataplane bucket provisioning is not configured on this Hermes instance | Ask the operator. |
+| 503 | dataplane writer role assignment is not configured on this Hermes instance | Ask the operator. |
 
 You own the bucket. Do not remove the Log Router entries from its access lists or delete the bucket while routing is enabled.
 

@@ -119,6 +119,19 @@ Environment:
 routing_store_driver = "postgres"   # or "mock"; nothing else is accepted
 ```
 
+### Writer role
+
+When `hermes.dataplane_assign_writer_role` (env `HERMES_DATAPLANE_ASSIGN_WRITER_ROLE`) is on, enabling first gives the writer user the role `hermes.dataplane_writer_role` (env `HERMES_DATAPLANE_WRITER_ROLE`, default `objectstore_admin`) in the project. With that role log-router can log in with a token scoped to the project, and RGW makes the project the owner of every object it writes. It is off by default. Each region turns it on (the helm chart renders it from a value) together with log-router's `LOG_ROUTER_SWIFT_PROJECT_SCOPED`. When it is off, hermez does not talk to Keystone on enable and log-router relies on the ACL grants below.
+
+1. The role ID is `hermes.dataplane_writer_role_id` (env `HERMES_DATAPLANE_WRITER_ROLE_ID`) if set. Otherwise Hermes looks it up by name with its own service token at startup and logs it. If that lookup fails, each enable tries again until one works and is kept; until then enabling answers 503.
+2. The same checks as for the bucket come first: a token scoped to exactly `{project_id}` (else 409) and a writer user ID (else 503).
+3. Hermes checks with its own service token, read only: `GET /v3/role_assignments?effective=true&role.id=<role id>&scope.project.id=<project_id>&user.id=<writer user id>`. The service user has the `service` role, which may read role assignments. `effective=true` counts the role however the writer has it: assigned directly, through a group, inherited from the project's domain or a parent project, or implied by another role. If the list is not empty the role is there, whoever assigned it, and nothing is assigned. In regions with log-router, the Hermes helm chart assigns `objectstore_admin` to the writer as an inherited role on every domain except the `iaas-` domains, so projects in those domains already have it; per-project assignments only happen in `iaas-` domains. If the check itself fails, enabling answers 503 when Keystone refuses Hermes' token (401, 403) and 502 otherwise. There is no assignment attempt after a failed check.
+4. If the role is missing, hermez assigns it with the caller's own token: `PUT /v3/projects/<project_id>/users/<writer user id>/roles/<role id>`. It uses the public `identity` endpoint of the caller's catalog, and only when that is the same Keystone v3 endpoint as in Hermes' own service catalog, otherwise 502. Redirects are not followed. Hermes' service token never assigns roles.
+5. A 403 on the `PUT` answers 403: the caller's token may not assign roles. The message says that a project admin (role `admin` or `role_admin` in the project) must run `openstack role add --user <writer user id> --project <project_id> <role name>` or enable dataplane themselves; after that, enabling works with the caller's token too, because step 3 then finds the role. A 401 answers 401 (token rejected, get a new one). A 404 means the writer user or the role does not exist in Keystone and answers 503, logged with both IDs. Anything else, timeouts and network errors answer 502. Nothing is created or saved on any of these.
+6. A role assigned in step 4 stays even when the bucket steps below fail or the config cannot be saved. Hermes never removes it; the next enable finds it in step 3.
+
+The Keystone requests of one enable share a 30 second deadline. The writer user holds the role in every project where it is effective: every project of a domain where it is assigned inherited, and every project where dataplane was enabled. Disabling leaves the role in place.
+
 ### Bucket creation
 
 The project must own the bucket, so that quota and billing follow the project. On `enabled=true` hermez does this with the caller's own `X-Auth-Token`, passed through unchanged:
@@ -143,7 +156,7 @@ The project must own the bucket, so that quota and billing follow the project. O
    | no endpoint in the catalog | 503 "object storage for dataplane is not available in this region" |
    | anything else, timeouts, network errors | 502 |
 
-The caller needs the `objectstore_admin` role in the project; RGW rejects tokens without it. There is no Object Lock or versioning on the bucket.
+The caller needs the `objectstore_admin` role in the project; RGW rejects tokens without it. With `hermes.dataplane_assign_writer_role` on, the caller must also be allowed to assign roles in the project (role `admin` or `role_admin`), unless the writer already has the role. There is no Object Lock or versioning on the bucket.
 
 ### 6. How log-router uses the config
 

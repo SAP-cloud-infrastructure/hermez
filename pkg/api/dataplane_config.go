@@ -180,10 +180,16 @@ func (p *v1Provider) PutDataplaneConfig(res http.ResponseWriter, req *http.Reque
 		UpdatedBy:    userID,
 	}
 
-	// Enabling creates the bucket in the caller's project. Nothing is saved
-	// unless that works. Disabling never touches the bucket.
+	// Enabling gives the writer user its role in the caller's project (when
+	// configured) and then creates the bucket there. Nothing is created unless
+	// the role is in place, and nothing is saved unless both work. An assigned
+	// role stays even when the bucket step fails. Disabling touches neither.
 	if cfg.Enabled {
-		if berr := p.ensureDataplaneBucket(req.Context(), token, projectID, cfg.TargetBucket); berr != nil {
+		berr := p.ensureDataplaneWriterRole(req.Context(), token, projectID)
+		if berr == nil {
+			berr = p.ensureDataplaneBucket(req.Context(), token, projectID, cfg.TargetBucket)
+		}
+		if berr != nil {
 			http.Error(res, berr.Message, berr.Status)
 			recordAttempt(berr.Status, &cfg)
 			return

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gophercloud/gophercloud/v2"
 	"github.com/rs/cors"
 	"github.com/spf13/viper"
 
@@ -40,7 +41,9 @@ const (
 )
 
 // Server sets up and starts the API server using httpapi patterns.
-func Server(ctx context.Context, validator gopherpolicy.Validator, storageInterface storage.Storage, routingStore routing.Store, auditor audittools.Auditor) error {
+// serviceIdentity is Hermes' own identity v3 client, nil without the keystone
+// driver. It is only used to read roles and role assignments.
+func Server(ctx context.Context, validator gopherpolicy.Validator, storageInterface storage.Storage, routingStore routing.Store, auditor audittools.Auditor, serviceIdentity *gophercloud.ServiceClient) error {
 	logg.Info("Starting Hermes API server")
 
 	// Build per-route rate limiters from viper config (nil when disabled).
@@ -67,6 +70,8 @@ func Server(ctx context.Context, validator gopherpolicy.Validator, storageInterf
 
 	// Create API compositions
 	v1API := NewV1API(validator, storageInterface, routingStore, auditor, defaultRL, downloadRL)
+	v1API.provider.dataplaneWriterRole.Service = serviceIdentity
+	v1API.provider.dataplaneWriterRole.resolveAtStartup(ctx)
 	versionAPI := NewVersionAPI(v1API.VersionData())
 	metricsAPI := NewMetricsAPI()
 
