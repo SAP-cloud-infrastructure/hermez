@@ -388,6 +388,32 @@ func TestWriterRole_KeptWhenBucketFails(t *testing.T) {
 	}
 }
 
+// TestWriterRole_ReEnableGrants proves the upgrade path for projects enabled
+// while the switch was off: once it is on, enabling the already enabled
+// project again checks and assigns the role like a first enable.
+func TestWriterRole_ReEnableGrants(t *testing.T) {
+	rgw, ks := newFakeRGW(t), newFakeIdentity(t)
+	var role *dataplaneWriterRole
+	handler, stored := setupWriterRoleTest(t, rgw, ks, scopedAuth(testProjectID), testWriterUserID, func(r *dataplaneWriterRole) {
+		writerRoleOn(ks)(r)
+		r.Assign = false
+		role = r
+	})
+
+	enable(t, handler, http.StatusOK, `"enabled": true`)
+	assertIdentityCalls(t, ks)
+	assertSaved(t, stored, true)
+
+	role.Assign = true
+	enable(t, handler, http.StatusOK, `"enabled": true`)
+	assertIdentityCalls(t, ks, "GET "+testCheck, "PUT "+testGrant)
+	assertTokens(t, ks)
+	if !ks.Assigned {
+		t.Error("re-enable did not assign the role")
+	}
+	assertSaved(t, stored, true)
+}
+
 // TestWriterRole_LazyResolution proves a role lookup that failed at startup is
 // tried again on enable (503 while it keeps failing, nothing touched), and
 // once it works the ID is kept and not looked up again.
