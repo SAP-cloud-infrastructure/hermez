@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gophercloud/gophercloud/v2"
+
 	"github.com/sapcc/go-bits/audittools"
 	"github.com/sapcc/go-bits/gopherpolicy"
 	"github.com/sapcc/go-bits/httpext"
@@ -53,12 +55,12 @@ func main() {
 	ctx := httpext.ContextWithSIGINT(context.Background(), 10*time.Second)
 	auditor := configuredAuditor(ctx)
 
-	keystoneDriver, serviceUser := configuredKeystoneDriver()
+	keystoneDriver, serviceUser, identityClient := configuredKeystoneDriver()
 	configureDataplaneWriter(serviceUser)
 	storageDriver := configuredStorageDriver()
 	routingStore := configuredRoutingStore(ctx)
 
-	must.Succeed(api.Server(ctx, keystoneDriver, storageDriver, routingStore, auditor))
+	must.Succeed(api.Server(ctx, keystoneDriver, storageDriver, routingStore, auditor, identityClient))
 }
 
 func parseCmdlineFlags() {
@@ -77,6 +79,8 @@ func setDefaultConfig() {
 	viper.SetDefault("hermes.storage_driver", "opensearch")
 	viper.SetDefault("hermes.routing_store_driver", "postgres")
 	viper.SetDefault("hermes.dataplane_swift_service_type", "object-store-ceph")
+	viper.SetDefault("hermes.dataplane_assign_writer_role", false)
+	viper.SetDefault("hermes.dataplane_writer_role", "objectstore_admin")
 	viper.SetDefault("API.ListenAddress", "0.0.0.0:8788")
 	viper.SetDefault("API.RateLimit.RequestsPerSecond", 0.0)
 	viper.SetDefault("API.RateLimit.Burst", 0)
@@ -102,6 +106,18 @@ func readConfig(configPath *string) {
 		logg.Fatal(err.Error())
 	}
 	err = viper.BindEnv("hermes.dataplane_swift_service_type", "HERMES_DATAPLANE_SWIFT_SERVICE_TYPE")
+	if err != nil {
+		logg.Fatal(err.Error())
+	}
+	err = viper.BindEnv("hermes.dataplane_assign_writer_role", "HERMES_DATAPLANE_ASSIGN_WRITER_ROLE")
+	if err != nil {
+		logg.Fatal(err.Error())
+	}
+	err = viper.BindEnv("hermes.dataplane_writer_role", "HERMES_DATAPLANE_WRITER_ROLE")
+	if err != nil {
+		logg.Fatal(err.Error())
+	}
+	err = viper.BindEnv("hermes.dataplane_writer_role_id", "HERMES_DATAPLANE_WRITER_ROLE_ID")
 	if err != nil {
 		logg.Fatal(err.Error())
 	}
@@ -149,8 +165,9 @@ func configureDataplaneWriter(serviceUser identity.ServiceUser) {
 }
 
 // configuredKeystoneDriver returns the token validator and, for the keystone
-// driver, the user of Hermes' own service token (zero value otherwise).
-func configuredKeystoneDriver() (validator gopherpolicy.Validator, serviceUser identity.ServiceUser) {
+// driver, the user of Hermes' own service token and its identity v3 client
+// (zero values otherwise).
+func configuredKeystoneDriver() (validator gopherpolicy.Validator, serviceUser identity.ServiceUser, identityClient *gophercloud.ServiceClient) {
 	driverName := viper.GetString("hermes.keystone_driver")
 	switch driverName {
 	case "keystone":
@@ -158,13 +175,13 @@ func configuredKeystoneDriver() (validator gopherpolicy.Validator, serviceUser i
 		defer cancel()
 		tv, user, err := identity.NewTokenValidator(ctx)
 		must.Succeed(err)
-		return tv, user
+		return tv, user, tv.IdentityV3
 	case "mock":
 		logg.Error("SECURITY WARNING: hermes.keystone_driver is set to \"mock\" — all requests are authorized without real Keystone token validation. This must NEVER be used in production.")
-		return mock.NewValidator(mock.NewEnforcer(), nil), identity.ServiceUser{}
+		return mock.NewValidator(mock.NewEnforcer(), nil), identity.ServiceUser{}, nil
 	default:
 		logg.Fatal("unknown keystone_driver %q", driverName)
-		return nil, identity.ServiceUser{} // unreachable
+		return nil, identity.ServiceUser{}, nil // unreachable
 	}
 }
 

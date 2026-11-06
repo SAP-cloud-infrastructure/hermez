@@ -41,10 +41,12 @@ type v1Provider struct {
 	routingStore routing.Store
 	auditor      audittools.Auditor
 
-	// dataplaneBucket and bucketHTTPClient drive the bucket creation on
-	// enabling dataplane routing. A nil bucketHTTPClient selects the default.
-	dataplaneBucket  dataplaneBucketConfig
-	bucketHTTPClient *http.Client
+	// dataplaneBucket, dataplaneWriterRole and bucketHTTPClient drive the role
+	// assignment and bucket creation on enabling dataplane routing. A nil
+	// bucketHTTPClient selects the default.
+	dataplaneBucket     dataplaneBucketConfig
+	dataplaneWriterRole *dataplaneWriterRole
+	bucketHTTPClient    *http.Client
 }
 
 // AuthHandler wraps endpoint handlers with consistent auth logic.
@@ -108,6 +110,12 @@ func NewV1API(validator gopherpolicy.Validator, storageInterface storage.Storage
 				WriterUserID: viper.GetString("hermes.dataplane_writer_user_id"),
 				ServiceType:  viper.GetString("hermes.dataplane_swift_service_type"),
 			},
+			// Server sets the service identity client.
+			dataplaneWriterRole: newDataplaneWriterRole(
+				viper.GetBool("hermes.dataplane_assign_writer_role"),
+				viper.GetString("hermes.dataplane_writer_role"),
+				viper.GetString("hermes.dataplane_writer_role_id"),
+			),
 		},
 	}
 

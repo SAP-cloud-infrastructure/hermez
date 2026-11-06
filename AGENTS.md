@@ -57,6 +57,7 @@ Environment variables the code reads:
 | `HERMES_DEBUG` | Debug logging |
 | `HERMES_OS_USERNAME`, `HERMES_OS_PASSWORD` | OpenSearch basic auth |
 | `HERMES_DATAPLANE_WRITER_USER_ID`, `HERMES_DATAPLANE_SWIFT_SERVICE_TYPE` | Writer user ID for the bucket read and write ACLs (defaults to the user of Hermes' own service token) and the catalog type of the object store. Used when a PUT enables dataplane and Hermes creates the bucket with the caller's token |
+| `HERMES_DATAPLANE_ASSIGN_WRITER_ROLE`, `HERMES_DATAPLANE_WRITER_ROLE`, `HERMES_DATAPLANE_WRITER_ROLE_ID` | Off by default, turned on per region. When `true`, a PUT that enables dataplane makes sure the writer user has the role `HERMES_DATAPLANE_WRITER_ROLE` (default `objectstore_admin`) in the project before the bucket is created. Hermes' own service token only reads (role ID lookup, effective assignment check, so inherited and group roles count); a missing assignment is made with the caller's token. `HERMES_DATAPLANE_WRITER_ROLE_ID` sets the role ID and skips the lookup by name |
 | `HERMES_PG_HOSTNAME`, `HERMES_PG_PORT`, `HERMES_PG_USERNAME`, `HERMES_PG_PASSWORD`, `HERMES_PG_DBNAME`, `HERMES_PG_CONNECTION_OPTIONS` | Postgres for the routing store |
 | `HERMES_AUDIT_RABBITMQ_QUEUE_NAME` and the other `HERMES_AUDIT_RABBITMQ_*` settings | Where Hermes sends its own CADF events for dataplane-config changes. Unset means events are only logged at debug level |
 

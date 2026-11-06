@@ -128,8 +128,13 @@ func (f *fakeRGW) Calls() []rgwCall {
 
 // Methods returns "METHOD path" for every call, in order.
 func (f *fakeRGW) Methods() []string {
+	return callMethods(f.Calls())
+}
+
+// callMethods returns "METHOD path" for every call, in order.
+func callMethods(calls []rgwCall) []string {
 	var out []string
-	for _, c := range f.Calls() {
+	for _, c := range calls {
 		out = append(out, c.Method+" "+c.Path)
 	}
 	return out
@@ -142,12 +147,18 @@ type fakeKeystone struct {
 	wantService string
 	// endpoint returns the catalog URL for a token's project.
 	endpoint func(projectID string) string
+	// identityEndpoint is the catalog URL of the identity service; empty means
+	// the catalog has none.
+	identityEndpoint string
 }
 
 func (k fakeKeystone) CheckToken(r *http.Request) *gopherpolicy.Token {
 	token := k.inner.CheckToken(r)
 	pc := &gophercloud.ProviderClient{TokenID: testCallerToken}
 	pc.EndpointLocator = func(opts gophercloud.EndpointOpts) (string, error) {
+		if opts.Type == "identity" && k.identityEndpoint != "" {
+			return k.identityEndpoint, nil
+		}
 		if opts.Type != k.wantService {
 			// Like openstack.V3EndpointURL.
 			return "", &gophercloud.ErrEndpointNotFound{}
@@ -182,6 +193,14 @@ func setupDataplaneTestWith(t *testing.T, rgw *fakeRGW, writerID string, auth ma
 // setupDataplaneTestKeystone builds the API with the given validator.
 func setupDataplaneTestKeystone(t *testing.T, validator gopherpolicy.Validator, writerID string) (http.Handler, *routing.Mock, *audittools.MockAuditor) {
 	t.Helper()
+	return setupDataplaneTestRole(t, validator, writerID, nil)
+}
+
+// setupDataplaneTestRole builds the API with the given validator. configure,
+// if not nil, adjusts the writer role setup that NewV1API made from the config
+// (off by default).
+func setupDataplaneTestRole(t *testing.T, validator gopherpolicy.Validator, writerID string, configure func(*dataplaneWriterRole)) (http.Handler, *routing.Mock, *audittools.MockAuditor) {
+	t.Helper()
 	routingStore := routing.NewMock()
 	mockAuditor := audittools.NewMockAuditor()
 
@@ -189,6 +208,9 @@ func setupDataplaneTestKeystone(t *testing.T, validator gopherpolicy.Validator, 
 
 	v1API := NewV1API(validator, storage.Mock{}, routingStore, mockAuditor, nil, nil)
 	v1API.provider.dataplaneBucket = dataplaneBucketConfig{WriterUserID: writerID, ServiceType: defaultDataplaneServiceType}
+	if configure != nil {
+		configure(v1API.provider.dataplaneWriterRole)
+	}
 	return httpapi.Compose(v1API, NewVersionAPI(v1API.VersionData()), NewMetricsAPI()), routingStore, mockAuditor
 }
 

@@ -42,7 +42,8 @@ type dataplaneBucketConfig struct {
 	ServiceType string
 }
 
-// bucketError is a failure of ensureDataplaneBucket that maps to an API response.
+// bucketError is a failure of ensureDataplaneBucket or
+// ensureDataplaneWriterRole that maps to an API response.
 type bucketError struct {
 	Status  int
 	Message string
@@ -60,6 +61,26 @@ const (
 	opProbe
 )
 
+// checkEnablePreconditions checks what both enable steps, the writer role and
+// the bucket, need before they send the caller's token anywhere: a token
+// scoped to exactly the project, a safe project ID for request URLs, and a
+// writer user.
+func (p *v1Provider) checkEnablePreconditions(token *gopherpolicy.Token, projectID string) *bucketError {
+	if projectID == "" || token.Context.Auth["project_id"] != projectID {
+		return &bucketError{http.StatusConflict, "enable dataplane with a token scoped to the project; the bucket must be created by the project"}
+	}
+	// The handler validates it already; checking again here keeps the request
+	// URLs safe on their own.
+	if !projectIDPattern.MatchString(projectID) {
+		return &bucketError{http.StatusBadRequest, "invalid project_id or target_bucket"}
+	}
+	if p.dataplaneBucket.WriterUserID == "" {
+		logg.Error("dataplane-config PUT: no writer user ID: hermes.dataplane_writer_user_id (HERMES_DATAPLANE_WRITER_USER_ID) is not set and the service token has none, cannot enable dataplane for project %s", projectID)
+		return &bucketError{http.StatusServiceUnavailable, "dataplane bucket provisioning is not configured on this Hermes instance"}
+	}
+	return nil
+}
+
 // ensureDataplaneBucket makes sure the container exists in the token's own
 // project, carries the ACLs that let log-router read and write it, and that the
 // project has quota left for log-router's objects.
@@ -68,17 +89,13 @@ const (
 // container owns it (quota and billing follow the owner), and a container POST
 // that sets ACLs makes the requester the owner, so it must be the same token.
 func (p *v1Provider) ensureDataplaneBucket(ctx context.Context, token *gopherpolicy.Token, projectID, bucket string) *bucketError {
-	if projectID == "" || token.Context.Auth["project_id"] != projectID {
-		return &bucketError{http.StatusConflict, "enable dataplane with a token scoped to the project; the bucket must be created by the project"}
+	if berr := p.checkEnablePreconditions(token, projectID); berr != nil {
+		return berr
 	}
-	// The handler validates both already; checking again here keeps the request
+	// The handler validates it already; checking again here keeps the request
 	// URL below safe on its own.
-	if !projectIDPattern.MatchString(projectID) || !s3BucketNamePattern.MatchString(bucket) {
+	if !s3BucketNamePattern.MatchString(bucket) {
 		return &bucketError{http.StatusBadRequest, "invalid project_id or target_bucket"}
-	}
-	if p.dataplaneBucket.WriterUserID == "" {
-		logg.Error("dataplane-config PUT: no writer user ID: hermes.dataplane_writer_user_id (HERMES_DATAPLANE_WRITER_USER_ID) is not set and the service token has none, cannot enable dataplane for project %s", projectID)
-		return &bucketError{http.StatusServiceUnavailable, "dataplane bucket provisioning is not configured on this Hermes instance"}
 	}
 	if token.ProviderClient == nil || token.ProviderClient.EndpointLocator == nil {
 		logg.Error("dataplane-config PUT: token for project %s has no service catalog access", projectID)
@@ -114,14 +131,14 @@ func (p *v1Provider) ensureDataplaneBucket(ctx context.Context, token *gopherpol
 	if client == nil {
 		client = defaultBucketHTTPClient
 	}
-	store := objectStore{client: client, tokenID: token.ProviderClient.TokenID, projectID: projectID}
+	store := callerClient{client: client, tokenID: token.ProviderClient.TokenID, projectID: projectID, service: "object storage"}
 	containerURL := account.JoinPath(bucket).String()
 	probeURL := account.JoinPath(bucket, dataplaneProbeObject).String()
 
 	// existed is true when the container was there before this request. A 403
 	// on changing it then means it belongs to another project.
 	existed := false
-	fail := func(op objectStoreOp, method, target string, reply *objectStoreReply) *bucketError {
+	fail := func(op objectStoreOp, method, target string, reply *callerReply) *bucketError {
 		logg.Error("dataplane-config PUT: %s %s for project %s returned %d", method, target, projectID, reply.StatusCode)
 		return mapObjectStoreStatus(op, reply.StatusCode, existed, bucket)
 	}
@@ -203,20 +220,22 @@ func (p *v1Provider) ensureDataplaneBucket(ctx context.Context, token *gopherpol
 	return nil
 }
 
-// objectStore sends requests to the object store with the caller's token.
-type objectStore struct {
+// callerClient sends requests to an OpenStack service with the caller's token.
+type callerClient struct {
 	client    *http.Client
 	tokenID   string
 	projectID string
+	// service names the service in error messages, e.g. "object storage".
+	service string
 }
 
-// objectStoreReply is the part of an object store response that we look at.
-type objectStoreReply struct {
+// callerReply is the part of a response that we look at.
+type callerReply struct {
 	StatusCode int
 	Header     http.Header
 }
 
-func (s objectStore) do(ctx context.Context, method, target string, header http.Header, body []byte) (*objectStoreReply, *bucketError) {
+func (s callerClient) do(ctx context.Context, method, target string, header http.Header, body []byte) (*callerReply, *bucketError) {
 	var reqBody io.Reader = http.NoBody
 	if body != nil {
 		reqBody = bytes.NewReader(body)
@@ -224,7 +243,7 @@ func (s objectStore) do(ctx context.Context, method, target string, header http.
 	req, err := http.NewRequestWithContext(ctx, method, target, reqBody)
 	if err != nil {
 		logg.Error("dataplane-config PUT: cannot build %s request for project %s: %s", method, s.projectID, err)
-		return nil, &bucketError{http.StatusBadGateway, "object storage request failed"}
+		return nil, &bucketError{http.StatusBadGateway, s.service + " request failed"}
 	}
 	maps.Copy(req.Header, header)
 	req.Header.Set("X-Auth-Token", s.tokenID)
@@ -232,12 +251,12 @@ func (s objectStore) do(ctx context.Context, method, target string, header http.
 	if err != nil {
 		logg.Error("dataplane-config PUT: %s %s failed for project %s: %s", method, target, s.projectID, err)
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, &bucketError{http.StatusBadGateway, "object storage did not answer in time"}
+			return nil, &bucketError{http.StatusBadGateway, s.service + " did not answer in time"}
 		}
-		return nil, &bucketError{http.StatusBadGateway, "object storage request failed"}
+		return nil, &bucketError{http.StatusBadGateway, s.service + " request failed"}
 	}
 	defer resp.Body.Close()
-	return &objectStoreReply{resp.StatusCode, resp.Header.Clone()}, nil
+	return &callerReply{resp.StatusCode, resp.Header.Clone()}, nil
 }
 
 func isSuccess(status int) bool { return status/100 == 2 }
