@@ -54,19 +54,36 @@ func setupTest(t *testing.T) http.Handler {
 
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
 
-	// Create API compositions using httpapi
 	v1API := NewV1API(validator, storageInterface, routingStore, audittools.NewNullAuditor(), nil, nil)
-	versionAPI := NewVersionAPI(v1API.VersionData())
-	metricsAPI := NewMetricsAPI()
+	return composeAPIs(v1API)
+}
 
-	// Compose all APIs using httpapi
-	router := httpapi.Compose(
-		v1API,
-		versionAPI,
-		metricsAPI,
-	)
+// TestHealthCheck covers issue #322: Kubernetes probes need an endpoint that
+// answers without a token and without touching OpenSearch.
+func TestHealthCheck(t *testing.T) {
+	router := setupTest(t)
 
-	return router
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(method, "/healthcheck", http.NoBody))
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			// ResponseRecorder keeps the body for HEAD; the real server drops it.
+			if got := rec.Body.String(); got != "ok\n" {
+				t.Errorf("body = %q, want %q", got, "ok\n")
+			}
+		})
+	}
+
+	// Write methods are not routed.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthcheck", http.NoBody))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
 }
 
 func Test_API(t *testing.T) {

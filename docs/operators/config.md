@@ -65,7 +65,7 @@ requests get HTTP 429 and are counted in `hermes_rate_limit_exceeded_total`.
 | `EvictionInterval` | `5m` | How often idle limiters are removed. Must be a positive duration when rate limiting is on. |
 | `MaxIdlePeriod` | `10m` | A limiter not used for this long is removed. |
 
-The dataplane-config endpoints and `/metrics` are not rate-limited.
+The dataplane-config endpoints, `/metrics` and `/healthcheck` are not rate-limited.
 
 ## \[opensearch\]
 
