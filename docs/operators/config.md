@@ -47,7 +47,7 @@ other projects through the `project_id` parameter).
 | Key | Default | Description |
 | --- | --- | --- |
 | `ListenAddress` | `0.0.0.0:8788` | Address the HTTP server listens on. |
-| `MaxConcurrentRequests` | `0` | Maximum number of requests served at the same time. More requests get HTTP 503 with `Retry-After: 1`. `0` means no limit; production deployments should set a positive value. |
+| `MaxConcurrentRequests` | `0` | Maximum number of requests served at the same time. More requests get HTTP 503 with `Retry-After: 1`. `/healthcheck` is exempt. `0` means no limit; production deployments should set a positive value. |
 | `CORSAllowedOrigins` | (empty) | List of origins allowed for browser requests, e.g. `["https://dashboard.example.com"]`. Empty allows all origins. |
 
 ### \[API.RateLimit\]

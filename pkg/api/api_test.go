@@ -58,8 +58,8 @@ func setupTest(t *testing.T) http.Handler {
 	return composeAPIs(v1API)
 }
 
-// TestHealthCheck covers issue #322: Kubernetes probes need an endpoint that
-// answers without a token and without touching OpenSearch.
+// TestHealthCheck covers issue #322: the production router serves GET and HEAD
+// /healthcheck for Kubernetes probes.
 func TestHealthCheck(t *testing.T) {
 	router := setupTest(t)
 
@@ -335,6 +335,52 @@ func TestRejectOverCapacityMiddleware(t *testing.T) {
 	case <-finished:
 	case <-time.After(time.Second):
 		t.Fatal("first request did not finish")
+	}
+}
+
+// TestRejectOverCapacityMiddleware_HealthCheckBypassesLimit: with every slot
+// held by a slow request, probes must still pass, or Kubernetes restarts or
+// unroutes every pod at once.
+func TestRejectOverCapacityMiddleware_HealthCheckBypassesLimit(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	slow := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(started)
+		<-release
+		close(finished)
+	})
+	mux := http.NewServeMux()
+	mux.Handle("/slow", slow)
+	mux.Handle("/", setupTest(t))
+	handler := rejectOverCapacityMiddleware(1)(mux)
+
+	go handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/slow", http.NoBody))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("slow request did not start")
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(method, healthCheckPath, http.NoBody))
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s %s at capacity: status = %d, want %d", method, healthCheckPath, rec.Code, http.StatusOK)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/", http.NoBody))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET /v1/ at capacity: status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("slow request did not finish")
 	}
 }
 
