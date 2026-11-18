@@ -104,6 +104,12 @@ to the OpenStack Dashboard.
 
 SAP [Converged Cloud Dashboard Elektra](https://github.com/sapcc/elektra) 
 
+## Health check
+
+`GET /healthcheck` (also `HEAD`) answers `200 ok` while the process is serving HTTP. It needs no token and does not query OpenSearch or Postgres, so a backend outage does not fail the probe and get every pod restarted. Probe requests are left out of the request log.
+
+Point the Kubernetes liveness and readiness probes at it. The health check is exempt from `API.MaxConcurrentRequests`: when a slow OpenSearch fills every pod's slots at once, the probes still pass, so pods are neither restarted nor removed from the Service. Requests over the limit still get `503` with `Retry-After: 1`.
+
 ## Instrumentation 
 
 Hermes has prometheus integration located at the /metrics endpoint. Custom metrics included are

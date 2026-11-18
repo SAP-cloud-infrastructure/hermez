@@ -72,15 +72,7 @@ func Server(ctx context.Context, validator gopherpolicy.Validator, storageInterf
 	v1API := NewV1API(validator, storageInterface, routingStore, auditor, defaultRL, downloadRL)
 	v1API.provider.dataplaneWriterRole.Service = serviceIdentity
 	v1API.provider.dataplaneWriterRole.resolveAtStartup(ctx)
-	versionAPI := NewVersionAPI(v1API.VersionData())
-	metricsAPI := NewMetricsAPI()
-
-	// Compose all APIs using httpapi
-	handler := httpapi.Compose(
-		v1API,
-		versionAPI,
-		metricsAPI,
-	)
+	handler := composeAPIs(v1API)
 
 	// Apply middleware
 	handler = InstrumentInflight(handler)
@@ -165,8 +157,30 @@ func Server(ctx context.Context, validator gopherpolicy.Validator, storageInterf
 	return err
 }
 
+// healthCheckPath is the path served by go-bits' httpapi.HealthCheckAPI.
+const healthCheckPath = "/healthcheck"
+
+// composeAPIs builds the router with every API section Hermes serves. The
+// production server and setupTest both use it.
+//
+// GET/HEAD /healthcheck answers "ok" for Kubernetes probes. It does not check
+// OpenSearch or Postgres: a backend outage must not get every Hermes pod
+// restarted. It skips the request log so probes don't flood it.
+func composeAPIs(v1API *V1API) http.Handler {
+	return httpapi.Compose(
+		v1API,
+		NewVersionAPI(v1API.VersionData()),
+		NewMetricsAPI(),
+		httpapi.HealthCheckAPI{SkipRequestLog: true},
+	)
+}
+
 // rejectOverCapacityMiddleware rejects excess work instead of allowing an
 // unbounded queue of goroutines to accumulate behind a concurrency limit.
+//
+// The health check bypasses the limit. When a slow OpenSearch holds every slot,
+// all pods are full at once; failing their probes would restart or unroute
+// every pod and turn slowness into an outage.
 func rejectOverCapacityMiddleware(maxRequests int) func(http.Handler) http.Handler {
 	return func(inner http.Handler) http.Handler {
 		if maxRequests <= 0 {
@@ -175,6 +189,10 @@ func rejectOverCapacityMiddleware(maxRequests int) func(http.Handler) http.Handl
 
 		semaphore := make(chan struct{}, maxRequests)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == healthCheckPath {
+				inner.ServeHTTP(w, r)
+				return
+			}
 			select {
 			case semaphore <- struct{}{}:
 				defer func() { <-semaphore }()

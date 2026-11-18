@@ -47,7 +47,7 @@ other projects through the `project_id` parameter).
 | Key | Default | Description |
 | --- | --- | --- |
 | `ListenAddress` | `0.0.0.0:8788` | Address the HTTP server listens on. |
-| `MaxConcurrentRequests` | `0` | Maximum number of requests served at the same time. More requests get HTTP 503 with `Retry-After: 1`. `0` means no limit; production deployments should set a positive value. |
+| `MaxConcurrentRequests` | `0` | Maximum number of requests served at the same time. More requests get HTTP 503 with `Retry-After: 1`. `/healthcheck` is exempt. `0` means no limit; production deployments should set a positive value. |
 | `CORSAllowedOrigins` | (empty) | List of origins allowed for browser requests, e.g. `["https://dashboard.example.com"]`. Empty allows all origins. |
 
 ### \[API.RateLimit\]
@@ -65,7 +65,7 @@ requests get HTTP 429 and are counted in `hermes_rate_limit_exceeded_total`.
 | `EvictionInterval` | `5m` | How often idle limiters are removed. Must be a positive duration when rate limiting is on. |
 | `MaxIdlePeriod` | `10m` | A limiter not used for this long is removed. |
 
-The dataplane-config endpoints and `/metrics` are not rate-limited.
+The dataplane-config endpoints, `/metrics` and `/healthcheck` are not rate-limited.
 
 ## \[opensearch\]
 

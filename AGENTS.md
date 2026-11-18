@@ -72,6 +72,7 @@ Environment variables the code reads:
 | GET | `/v1/attributes/{attribute_name}` | `event:list` |
 | GET, PUT, DELETE | `/v1/projects/{project_id}/dataplane-config` | `dataplane_config:manage` |
 | GET | `/metrics` | none |
+| GET, HEAD | `/healthcheck` | none |
 
 Reference: [docs/users/hermez-v1-reference.md](docs/users/hermez-v1-reference.md). Update it in the same PR when you change a response or a parameter.
 

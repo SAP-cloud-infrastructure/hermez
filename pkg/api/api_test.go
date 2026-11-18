@@ -54,19 +54,36 @@ func setupTest(t *testing.T) http.Handler {
 
 	prometheus.DefaultRegisterer = prometheus.NewPedanticRegistry()
 
-	// Create API compositions using httpapi
 	v1API := NewV1API(validator, storageInterface, routingStore, audittools.NewNullAuditor(), nil, nil)
-	versionAPI := NewVersionAPI(v1API.VersionData())
-	metricsAPI := NewMetricsAPI()
+	return composeAPIs(v1API)
+}
 
-	// Compose all APIs using httpapi
-	router := httpapi.Compose(
-		v1API,
-		versionAPI,
-		metricsAPI,
-	)
+// TestHealthCheck covers issue #322: the production router serves GET and HEAD
+// /healthcheck for Kubernetes probes.
+func TestHealthCheck(t *testing.T) {
+	router := setupTest(t)
 
-	return router
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(method, "/healthcheck", http.NoBody))
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			// ResponseRecorder keeps the body for HEAD; the real server drops it.
+			if got := rec.Body.String(); got != "ok\n" {
+				t.Errorf("body = %q, want %q", got, "ok\n")
+			}
+		})
+	}
+
+	// Write methods are not routed.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthcheck", http.NoBody))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
 }
 
 func Test_API(t *testing.T) {
@@ -318,6 +335,52 @@ func TestRejectOverCapacityMiddleware(t *testing.T) {
 	case <-finished:
 	case <-time.After(time.Second):
 		t.Fatal("first request did not finish")
+	}
+}
+
+// TestRejectOverCapacityMiddleware_HealthCheckBypassesLimit: with every slot
+// held by a slow request, probes must still pass, or Kubernetes restarts or
+// unroutes every pod at once.
+func TestRejectOverCapacityMiddleware_HealthCheckBypassesLimit(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	slow := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(started)
+		<-release
+		close(finished)
+	})
+	mux := http.NewServeMux()
+	mux.Handle("/slow", slow)
+	mux.Handle("/", setupTest(t))
+	handler := rejectOverCapacityMiddleware(1)(mux)
+
+	go handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/slow", http.NoBody))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("slow request did not start")
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(method, healthCheckPath, http.NoBody))
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s %s at capacity: status = %d, want %d", method, healthCheckPath, rec.Code, http.StatusOK)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/", http.NoBody))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET /v1/ at capacity: status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("slow request did not finish")
 	}
 }
 
